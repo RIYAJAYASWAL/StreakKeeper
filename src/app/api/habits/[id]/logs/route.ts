@@ -6,7 +6,7 @@ import { getTodayInTimezone } from "@/lib/streakEngine";
 // GET /api/habits/[id]/logs
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getAuthSession();
@@ -15,7 +15,7 @@ export async function GET(
     }
 
     const userId = session.user.id || "demo-user-id";
-    const habitId = params.id;
+    const { id: habitId } = await params;
 
     // Verify habit ownership
     const habit = await prisma.habit.findUnique({
@@ -49,7 +49,7 @@ export async function GET(
 // POST /api/habits/[id]/logs
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getAuthSession();
@@ -58,7 +58,7 @@ export async function POST(
     }
 
     const userId = session.user.id || "demo-user-id";
-    const habitId = params.id;
+    const { id: habitId } = await params;
 
     // Verify habit ownership
     const habit = await prisma.habit.findUnique({

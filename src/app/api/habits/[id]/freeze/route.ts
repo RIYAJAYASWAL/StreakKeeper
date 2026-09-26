@@ -6,7 +6,7 @@ import { getTodayInTimezone } from "@/lib/streakEngine";
 // POST /api/habits/[id]/freeze
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getAuthSession();
@@ -15,7 +15,7 @@ export async function POST(
     }
 
     const userId = session.user.id || "demo-user-id";
-    const habitId = params.id;
+    const { id: habitId } = await params;
 
     // Verify habit ownership and freezes available
     const habit = await prisma.habit.findUnique({

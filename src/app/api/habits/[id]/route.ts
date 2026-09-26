@@ -7,7 +7,7 @@ import { randomBytes } from "crypto";
 // GET /api/habits/[id]
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getAuthSession();
@@ -16,7 +16,7 @@ export async function GET(
     }
 
     const userId = session.user.id || "demo-user-id";
-    const habitId = params.id;
+    const { id: habitId } = await params;
 
     const habit = await prisma.habit.findUnique({
       where: { id: habitId },
@@ -77,7 +77,7 @@ export async function GET(
 // PATCH /api/habits/[id]
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getAuthSession();
@@ -86,7 +86,7 @@ export async function PATCH(
     }
 
     const userId = session.user.id || "demo-user-id";
-    const habitId = params.id;
+    const { id: habitId } = await params;
 
     const habit = await prisma.habit.findUnique({
       where: { id: habitId },
@@ -157,7 +157,7 @@ export async function PATCH(
 // DELETE /api/habits/[id]
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getAuthSession();
@@ -166,7 +166,7 @@ export async function DELETE(
     }
 
     const userId = session.user.id || "demo-user-id";
-    const habitId = params.id;
+    const { id: habitId } = await params;
 
     const habit = await prisma.habit.findUnique({
       where: { id: habitId },
