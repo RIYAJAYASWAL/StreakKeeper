@@ -1,0 +1,67 @@
+// Prisma schema for StreakKeeper habit-tracking app
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Frequency {
+  DAILY
+  WEEKLY
+  CUSTOM
+}
+
+enum LogStatus {
+  DONE
+  MISSED
+  FROZEN
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  timezone     String   @default("UTC")
+  createdAt    DateTime @default(now())
+
+  habits Habit[]
+}
+
+model Habit {
+  id               String    @id @default(cuid())
+  userId           String
+  name             String
+  description      String?
+  frequency        Frequency
+  targetDays       String[]  // Array of day identifiers (e.g. ["MON", "WED", "FRI"]) when frequency is CUSTOM
+  freezesAvailable Int       @default(3)
+  isPublic         Boolean   @default(false)
+  publicId         String?   @unique
+  createdAt        DateTime  @default(now())
+  archivedAt       DateTime?
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  habitLogs HabitLog[]
+
+  @@index([userId])
+}
+
+model HabitLog {
+  id        String    @id @default(cuid())
+  habitId   String
+  date      DateTime  @db.Date // Represents the user's LOCAL day (date-only)
+  status    LogStatus
+  loggedAt  DateTime  @default(now()) // Timestamp when the action was recorded
+  createdAt DateTime  @default(now())
+
+  habit Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  @@unique([habitId, date])
+  @@index([habitId])
+  @@index([date])
+}
