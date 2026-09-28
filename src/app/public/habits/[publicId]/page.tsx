@@ -7,9 +7,9 @@ export const revalidate = 60; // Cache public streaks for 60 seconds
 export default async function PublicHabitPage({
   params,
 }: {
-  params: { publicId: string };
+  params: Promise<{ publicId: string }>;
 }) {
-  const publicId = params.publicId;
+  const { publicId } = await params;
 
   let habit = null;
 

@@ -10,12 +10,12 @@ export const revalidate = 0;
 export default async function HabitDetailPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
   const session = await getAuthSession();
   const user = session?.user || { name: "Alex Morgan", email: "alex@streakkeeper.com", id: "demo-user-id" };
   const userId = user.id || "demo-user-id";
-  const habitId = params.id;
+  const { id: habitId } = await params;
 
   let habit = null;
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -14,9 +14,10 @@ const DAYS_OF_WEEK = [
   { id: "SUN", label: "Sun" },
 ];
 
-export default function EditHabitPage({ params }: { params: { id: string } }) {
+export default function EditHabitPage({ params }: { params: Promise<{ id: string }> | { id: string } }) {
   const router = useRouter();
-  const habitId = params.id;
+  const unwrappedParams = typeof (params as any)?.then === "function" ? use(params as Promise<{ id: string }>) : (params as { id: string });
+  const habitId = unwrappedParams.id;
 
   const [formData, setFormData] = useState({
     name: "",
