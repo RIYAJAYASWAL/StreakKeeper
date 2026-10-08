@@ -13,6 +13,16 @@ export interface QueuedCheckoff {
 }
 
 const STORAGE_KEY = "streakkeeper_offline_queue";
+const PROGRESS_UPDATED_KEY = "streakkeeper_habit_progress_updated";
+
+export function notifyHabitProgressChanged(): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(PROGRESS_UPDATED_KEY, String(Date.now()));
+  } catch {
+    // Ignore unavailable local storage
+  }
+}
 
 /**
  * Retrieve current queued offline check-offs from localStorage
@@ -103,6 +113,8 @@ export async function syncOfflineQueue(): Promise<{ syncedCount: number; errors:
       errors++;
     }
   }
+
+  if (syncedCount > 0) notifyHabitProgressChanged();
 
   try {
     if (remainingQueue.length > 0) {

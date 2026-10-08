@@ -7,6 +7,12 @@ import { detectRelapsePatterns } from "@/lib/relapseDetector";
 
 const SYSTEM_PROMPT = `You are a habit coach. You will be given real statistics about a user's habit. Give exactly one short, specific suggestion (2-3 sentences max) that directly references the numbers provided. Do not give generic advice that could apply to anyone. If the data shows no clear pattern, say so honestly instead of inventing one.`;
 
+async function getUserId() {
+  const session = await getAuthSession();
+  if (session?.user) return session.user.id || "demo-user-id";
+  return process.env.NODE_ENV === "production" ? null : "demo-user-id";
+}
+
 function generateFallbackSuggestion(data: any): string {
   const { habitName, currentStreak, longestStreak, completionRate, bestDay, bestTimeRange, totalLogs } = data;
 
@@ -15,16 +21,16 @@ function generateFallbackSuggestion(data: any): string {
   }
 
   if (bestDay && bestTimeRange) {
-    return `For ${habitName}, your data shows you're most consistent on ${bestDay} during ${bestTimeRange} with a ${completionRate}% completion rate. Leverage this momentum to push your current ${currentStreak}-day streak closer to your record of ${longestStreak} days.`;
+    return `For ${habitName}, your data shows you're most consistent on ${bestDay} during ${bestTimeRange} with a ${completionRate} completion rate. Leverage this momentum to push your current ${currentStreak}-day streak closer to your record of ${longestStreak} days.`;
   }
 
-  return `Your current streak for ${habitName} is ${currentStreak} day${currentStreak === 1 ? "" : "s"} against a record of ${longestStreak} days with a ${completionRate}% overall completion rate. Maintaining a consistent daily check-in time will help build higher consistency.`;
+  return `Your current streak for ${habitName} is ${currentStreak} day${currentStreak === 1 ? "" : "s"} against a record of ${longestStreak} days with a ${completionRate} overall completion rate. Maintaining a consistent daily check-in time will help build higher consistency.`;
 }
 
 export async function POST(request: Request) {
   try {
-    const session = await getAuthSession();
-    if (!session || !session.user) {
+    const userId = await getUserId();
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -35,7 +41,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "habitId is required" }, { status: 400 });
     }
 
-    // 1. Check cache in database (if refresh is false)
+    // 1. Fetch the habit and verify ownership before reading its suggestion cache.
+    const habit = await prisma.habit.findUnique({
+      where: { id: habitId },
+      include: {
+        habitLogs: {
+          orderBy: { date: "desc" },
+        },
+      },
+    });
+
+    if (!habit) {
+      return NextResponse.json({ error: "Habit not found" }, { status: 404 });
+    }
+
+    if (habit.userId !== userId && habit.userId !== "demo-user-id") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    // 2. Check cache in database (if refresh is false)
     if (!refresh) {
       try {
         const existingSuggestion = await prisma.coachSuggestion.findUnique({
@@ -59,27 +83,13 @@ export async function POST(request: Request) {
       }
     }
 
-    // 2. Fetch habit and logs
-    const habit = await prisma.habit.findUnique({
-      where: { id: habitId },
-      include: {
-        habitLogs: {
-          orderBy: { date: "desc" },
-        },
-      },
-    });
-
-    if (!habit) {
-      return NextResponse.json({ error: "Habit not found" }, { status: 404 });
-    }
-
+    // 3. Compute structured summary statistics
     const logs = habit.habitLogs.map((l) => ({
       date: l.date,
       status: l.status,
       loggedAt: l.loggedAt,
     }));
 
-    // 3. Compute structured summary statistics
     const currentStreak = calculateCurrentStreak(logs as any, habit.frequency as any, habit.targetDays);
     const longestStreak = calculateLongestStreak(logs as any, habit.frequency as any, habit.targetDays);
 
@@ -117,40 +127,57 @@ export async function POST(request: Request) {
     };
 
     let suggestionText = "";
+    let providerError: string | null = null;
 
-    // 4. Call LLM API (Google Gemini API if GEMINI_API_KEY set)
+    // 4. Call Gemini when configured; retain the local suggestion as a fallback.
     const apiKey = process.env.GEMINI_API_KEY;
-    if (apiKey) {
-      try {
-        const aiResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [
-                {
-                  role: "user",
-                  parts: [
-                    {
-                      text: `${SYSTEM_PROMPT}\n\nHere are the habit statistics:\n${JSON.stringify(structuredSummary, null, 2)}`,
-                    },
-                  ],
-                },
-              ],
-            }),
-          }
-        );
+    if (!apiKey) {
+      providerError = "GEMINI_API_KEY is not configured.";
+      console.error(`Habit coach fallback: ${providerError}`);
+    } else {
+      const models = ["gemini-3.8-flash", "gemini-3.5-flash-lite"];
+      for (const model of models) {
+        try {
+          const aiResponse = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [
+                  {
+                    role: "user",
+                    parts: [
+                      {
+                        text: `${SYSTEM_PROMPT}\n\nHere are the habit statistics:\n${JSON.stringify(structuredSummary, null, 2)}`,
+                      },
+                    ],
+                  },
+                ],
+              }),
+            }
+          );
 
-        if (aiResponse.ok) {
-          const aiData = await aiResponse.json();
-          const rawText = aiData?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (rawText && rawText.trim().length > 0) {
-            suggestionText = rawText.trim();
+          if (aiResponse.ok) {
+            const aiData = await aiResponse.json();
+            const rawText = aiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (rawText && rawText.trim().length > 0) {
+              suggestionText = rawText.trim();
+              providerError = null;
+              break;
+            }
+            providerError = `${model} returned an empty response.`;
+          } else {
+            const errorData = await aiResponse.json().catch(() => null);
+            const providerMessage = errorData?.error?.message;
+            providerError = `${model} returned ${aiResponse.status}${providerMessage ? `: ${String(providerMessage).replaceAll(apiKey, "[redacted]").slice(0, 240)}` : "."}`;
           }
+        } catch (error) {
+          providerError = error instanceof Error ? error.message : `${model} request failed.`;
+          providerError = providerError.replaceAll(apiKey, "[redacted]").slice(0, 240);
         }
-      } catch (e) {
-        console.error("LLM generation error:", e);
+
+        console.error(`Habit coach fallback: ${providerError}`);
       }
     }
 
@@ -182,6 +209,7 @@ export async function POST(request: Request) {
       suggestion: suggestionText,
       cached: false,
       generatedAt: savedAt,
+      providerError,
     });
   } catch (err: any) {
     console.error("POST /api/coach error:", err);

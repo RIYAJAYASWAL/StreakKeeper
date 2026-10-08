@@ -12,6 +12,7 @@ export default function CoachCard({ habitId, initialSuggestion }: CoachCardProps
   const [suggestion, setSuggestion] = useState<string | null>(initialSuggestion || null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [providerError, setProviderError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!initialSuggestion) {
@@ -22,6 +23,7 @@ export default function CoachCard({ habitId, initialSuggestion }: CoachCardProps
   const fetchSuggestion = async (refresh: boolean = false) => {
     setLoading(true);
     setError(null);
+    setProviderError(null);
 
     try {
       const res = await fetch("/api/coach", {
@@ -38,6 +40,7 @@ export default function CoachCard({ habitId, initialSuggestion }: CoachCardProps
       if (data.suggestion) {
         setSuggestion(data.suggestion);
       }
+      setProviderError(data.providerError || null);
     } catch {
       setError("Unable to generate suggestion at this time.");
     } finally {
@@ -59,9 +62,16 @@ export default function CoachCard({ habitId, initialSuggestion }: CoachCardProps
             {error ? (
               <p className="text-xs text-[#FF6B6B] mt-0.5">{error}</p>
             ) : suggestion ? (
-              <p className="text-sm sm:text-base font-semibold text-textPrimary mt-0.5 leading-relaxed">
-                {suggestion}
-              </p>
+              <>
+                <p className="text-sm sm:text-base font-semibold text-textPrimary mt-0.5 leading-relaxed">
+                  {suggestion}
+                </p>
+                {providerError && (
+                  <p className="text-[11px] text-textSecondary mt-1">
+                    AI unavailable: {providerError} Showing data-based coaching instead.
+                  </p>
+                )}
+              </>
             ) : (
               <p className="text-xs text-textSecondary mt-0.5 italic">
                 {loading ? "Analyzing stats..." : "Loading suggestion..."}

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { enqueueOfflineCheckoff } from "@/lib/offlineQueue";
+import { enqueueOfflineCheckoff, notifyHabitProgressChanged } from "@/lib/offlineQueue";
 
 export interface HabitCardProps {
   id?: string;
@@ -90,6 +90,7 @@ export default function HabitCard({
         setStatus(prevStatus);
         setStreak(prevStreak);
       } else {
+        notifyHabitProgressChanged();
         router.refresh();
       }
     } catch {
@@ -127,6 +128,7 @@ export default function HabitCard({
         setStatus(prevStatus);
         setStreak(prevStreak);
       } else {
+        notifyHabitProgressChanged();
         router.refresh();
       }
     } catch {

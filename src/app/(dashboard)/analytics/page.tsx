@@ -10,8 +10,9 @@ import {
   OverallAnalyticsSummary,
   HabitAnalyticsCard,
 } from "@/components/AnalyticsCharts";
+import HabitProgressRefreshListener from "@/components/HabitProgressRefreshListener";
 import Link from "next/link";
-import { Frequency, LogStatus } from "@/lib/streakEngine";
+import { Frequency, getTodayInTimezone, LogStatus } from "@/lib/streakEngine";
 
 export const revalidate = 0; // Dynamic server component
 
@@ -24,6 +25,16 @@ export default async function AnalyticsPage() {
     timezone: "UTC",
   };
   const userId = user.id || "demo-user-id";
+  let timezone = (user as { timezone?: string }).timezone || "UTC";
+  try {
+    const userSettings = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { timezone: true },
+    });
+    timezone = userSettings?.timezone || timezone;
+  } catch {
+    // Keep the session timezone or UTC fallback
+  }
 
   let habitsAnalytics: HabitAnalyticsResult[] = [];
   let aggregateAnalytics = calculateAggregateAnalytics([]);
@@ -48,14 +59,14 @@ export default async function AnalyticsPage() {
       frequency: h.frequency as Frequency,
       targetDays: h.targetDays || [],
       createdAt: h.createdAt,
-      timezone: (user as { timezone?: string }).timezone || "UTC",
+      timezone,
       habitLogs: h.habitLogs.map((log) => ({
         date: log.date,
         status: log.status as LogStatus,
       })),
     }));
 
-    const today = new Date();
+    const today = new Date(`${getTodayInTimezone(timezone)}T00:00:00.000Z`);
     habitsAnalytics = formattedHabits.map((h) => calculateHabitAnalytics(h, today));
     aggregateAnalytics = calculateAggregateAnalytics(habitsAnalytics);
   } catch (error) {
@@ -64,6 +75,7 @@ export default async function AnalyticsPage() {
 
   return (
     <div className="min-h-screen bg-[#0A0A0F] text-[#F4F4F8] selection:bg-[#8B5CF6]/30 selection:text-[#F4F4F8] flex flex-col font-sans">
+      <HabitProgressRefreshListener />
       {/* Navigation Header */}
       <header className="w-full border-b border-[#232336]/80 bg-[#0A0A0F]/80 backdrop-blur-md sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">

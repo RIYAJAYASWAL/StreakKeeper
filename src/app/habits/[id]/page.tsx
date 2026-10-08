@@ -4,6 +4,7 @@ import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import HeatmapCalendar from "@/components/HeatmapCalendar";
 import HabitDetailActions from "@/components/HabitDetailActions";
+import HabitProgressRefreshListener from "@/components/HabitProgressRefreshListener";
 import ReminderSettings from "@/components/ReminderSettings";
 import CoachCard from "@/components/CoachCard";
 import { suggestReminderTime, generateRecommendation, getBestPerformanceWindow } from "@/lib/analyticsEngine";
@@ -147,6 +148,7 @@ export default async function HabitDetailPage({
 
   return (
     <div className="min-h-screen bg-background text-textPrimary flex flex-col selection:bg-violet/30 selection:text-textPrimary">
+      <HabitProgressRefreshListener />
       {/* Navbar */}
       <header className="w-full border-b border-surfaceBorder/60 bg-background/80 backdrop-blur-md sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
