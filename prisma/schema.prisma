@@ -21,6 +21,12 @@ enum LogStatus {
   FROZEN
 }
 
+enum GoalType {
+  NONE
+  BUILD_STREAK
+  HIT_TARGET_RATE
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -30,11 +36,28 @@ model User {
   createdAt    DateTime @default(now())
 
   habits Habit[]
+  groups HabitGroup[]
+  pushSubscriptions PushSubscription[]
+}
+
+
+model HabitGroup {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  color     String
+  createdAt DateTime @default(now())
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  habits Habit[]
+
+  @@index([userId])
 }
 
 model Habit {
   id               String    @id @default(cuid())
   userId           String
+  groupId          String?
   name             String
   description      String?
   frequency        Frequency
@@ -42,13 +65,20 @@ model Habit {
   freezesAvailable Int       @default(3)
   isPublic         Boolean   @default(false)
   publicId         String?   @unique
+  goalType         GoalType  @default(NONE)
+  goalTarget       Int?
   createdAt        DateTime  @default(now())
   archivedAt       DateTime?
 
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  habitLogs HabitLog[]
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group           HabitGroup?      @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  habitLogs       HabitLog[]
+  reminders       Reminder[]
+  coachSuggestion CoachSuggestion?
+
 
   @@index([userId])
+  @@index([groupId])
 }
 
 model HabitLog {
@@ -65,3 +95,41 @@ model HabitLog {
   @@index([habitId])
   @@index([date])
 }
+
+model Reminder {
+  id         String    @id @default(cuid())
+  habitId    String
+  time       String    // "HH:MM" 24hr format
+  daysOfWeek String[]  // Array of day identifiers (e.g. ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"])
+  enabled    Boolean   @default(true)
+  lastSentAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  habit Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  @@index([habitId])
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  keys      Json
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model CoachSuggestion {
+  id             String   @id @default(cuid())
+  habitId        String   @unique
+  suggestionText String
+  generatedAt    DateTime @default(now())
+
+  habit Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
+}
+
+
+

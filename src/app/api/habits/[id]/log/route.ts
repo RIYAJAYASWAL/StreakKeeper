@@ -56,3 +56,25 @@ export async function POST(
     return NextResponse.json({ success: true });
   }
 }
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id: habitId } = await params;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    await prisma.habitLog.deleteMany({
+      where: {
+        habitId,
+        date: today,
+      },
+    });
+
+    return NextResponse.json({ success: true });
+  } catch {
+    return NextResponse.json({ success: true });
+  }
+}

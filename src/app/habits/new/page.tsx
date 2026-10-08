@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -23,7 +23,19 @@ export default function NewHabitPage() {
     frequency: "DAILY" as "DAILY" | "WEEKLY" | "CUSTOM",
     targetDays: [] as string[],
     isPublic: false,
+    groupId: "",
   });
+
+  const [groups, setGroups] = useState<Array<{ id: string; name: string; color: string }>>([]);
+
+  useEffect(() => {
+    fetch("/api/groups")
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data.groups)) setGroups(data.groups);
+      })
+      .catch(() => {});
+  }, []);
 
   const [errors, setErrors] = useState<{
     name?: string;
@@ -90,6 +102,7 @@ export default function NewHabitPage() {
           frequency: formData.frequency,
           targetDays: formData.frequency === "CUSTOM" ? formData.targetDays : [],
           isPublic: formData.isPublic,
+          groupId: formData.groupId || null,
         }),
       });
 
@@ -259,6 +272,26 @@ export default function NewHabitPage() {
               )}
             </div>
           )}
+
+          {/* Group Selector */}
+          <div>
+            <label htmlFor="group" className="block text-xs font-semibold text-textSecondary uppercase tracking-wider mb-2">
+              Habit Group <span className="text-textSecondary/60 font-normal lowercase">(optional)</span>
+            </label>
+            <select
+              id="group"
+              value={formData.groupId}
+              onChange={(e) => setFormData({ ...formData, groupId: e.target.value })}
+              className="w-full px-4 py-3 rounded-xl bg-background border border-surfaceBorder text-textPrimary text-sm focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet transition-colors"
+            >
+              <option value="">No Group (Ungrouped)</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </div>
 
           {/* Shareable Public Link Checkbox */}
           <div className="pt-2">

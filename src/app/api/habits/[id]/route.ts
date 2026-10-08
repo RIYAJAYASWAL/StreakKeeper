@@ -21,6 +21,7 @@ export async function GET(
     const habit = await prisma.habit.findUnique({
       where: { id: habitId },
       include: {
+        group: true,
         habitLogs: {
           orderBy: { date: "desc" },
         },
@@ -102,7 +103,7 @@ export async function PATCH(
     }
 
     const body = await request.json().catch(() => ({}));
-    const { name, description, frequency, targetDays, isPublic, archivedAt } = body;
+    const { name, description, frequency, targetDays, isPublic, archivedAt, goalType, goalTarget, groupId } = body;
 
     const updateData: Record<string, unknown> = {};
 
@@ -140,6 +141,18 @@ export async function PATCH(
 
     if (archivedAt !== undefined) {
       updateData.archivedAt = archivedAt ? new Date(archivedAt) : null;
+    }
+
+    if (goalType !== undefined) {
+      updateData.goalType = goalType;
+    }
+
+    if (goalTarget !== undefined) {
+      updateData.goalTarget = goalTarget !== null && goalTarget !== "" ? Number(goalTarget) : null;
+    }
+
+    if (groupId !== undefined) {
+      updateData.groupId = groupId || null;
     }
 
     const updatedHabit = await prisma.habit.update({

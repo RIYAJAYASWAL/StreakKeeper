@@ -35,6 +35,7 @@ export async function GET() {
           archivedAt: null,
         },
         include: {
+          group: true,
           habitLogs: {
             orderBy: { date: "desc" },
           },
@@ -82,7 +83,7 @@ export async function POST(request: Request) {
 
     const userId = session.user.id || "demo-user-id";
     const body = await request.json().catch(() => ({}));
-    const { name, description, frequency, targetDays, isPublic } = body;
+    const { name, description, frequency, targetDays, isPublic, groupId, goalType, goalTarget } = body;
 
     // Validation
     if (!name || typeof name !== "string" || !name.trim()) {
@@ -129,6 +130,12 @@ export async function POST(request: Request) {
           freezesAvailable: 3,
           isPublic: Boolean(isPublic),
           publicId,
+          groupId: groupId || null,
+          goalType: goalType || "NONE",
+          goalTarget: goalTarget ? Number(goalTarget) : null,
+        },
+        include: {
+          group: true,
         },
       });
     } catch {

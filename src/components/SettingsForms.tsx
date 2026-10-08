@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -11,6 +12,17 @@ interface SettingsFormsProps {
     email: string;
     timezone: string;
   };
+}
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
 }
 
 const COMMON_TIMEZONES = [
@@ -41,6 +53,88 @@ export default function SettingsForms({ initialUser }: SettingsFormsProps) {
   const [timezoneLoading, setTimezoneLoading] = useState(false);
   const [timezoneFeedback, setTimezoneFeedback] = useState<{ type: "success" | "error"; msg: string } | null>(null);
 
+  // Web Push Notification State
+  const [pushSupported, setPushSupported] = useState(false);
+  const [pushSubscribed, setPushSubscribed] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
+  const [pushFeedback, setPushFeedback] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window) {
+      setPushSupported(true);
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+
+      navigator.serviceWorker.ready.then((reg) => {
+        reg.pushManager.getSubscription().then((sub) => {
+          if (sub) {
+            setPushSubscribed(true);
+          }
+        });
+      });
+    }
+  }, []);
+
+  const handleTogglePushNotifications = async () => {
+    setPushLoading(true);
+    setPushFeedback(null);
+
+    try {
+      if (!pushSupported) {
+        throw new Error("Web Push Notifications are not supported in this browser.");
+      }
+
+      if (pushSubscribed) {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          await sub.unsubscribe();
+          await fetch(`/api/push/subscribe?endpoint=${encodeURIComponent(sub.endpoint)}`, {
+            method: "DELETE",
+          });
+        }
+        setPushSubscribed(false);
+        setPushFeedback({ type: "success", msg: "Web push notifications disabled." });
+      } else {
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") {
+          throw new Error("Notification permission was denied.");
+        }
+
+        const reg = await navigator.serviceWorker.ready;
+        const vapidKey =
+          process.env.NEXT_PUBLIC_VAPID_KEY ||
+          "BBlZEtwkSddDCVvRE08kUOBMN-Yw01YWoQS2FksntLd_DBq8txd9jqaDXmT53R28viB9diLZcc9B-Y6C9MSIlX4";
+        const convertedVapidKey = urlBase64ToUint8Array(vapidKey);
+
+        const subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: convertedVapidKey,
+        });
+
+        const res = await fetch("/api/push/subscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subscription }),
+        });
+
+        if (!res.ok) {
+          throw new Error("Failed to save push subscription on server.");
+        }
+
+        setPushSubscribed(true);
+        setPushFeedback({ type: "success", msg: "Web push notifications enabled successfully!" });
+      }
+    } catch (err: any) {
+      setPushFeedback({
+        type: "error",
+        msg: err.message || "Failed to update notification settings.",
+      });
+    } finally {
+      setPushLoading(false);
+    }
+  };
+
+
   // Password Section State
   const [passwords, setPasswords] = useState({
     currentPassword: "",
@@ -53,6 +147,32 @@ export default function SettingsForms({ initialUser }: SettingsFormsProps) {
   // Danger Zone State
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // Export State
+  const [exportFormat, setExportFormat] = useState<"csv" | "json" | "pdf">("csv");
+  const [exportLoading, setExportLoading] = useState(false);
+
+  const handleExportData = async () => {
+    setExportLoading(true);
+    try {
+      const res = await fetch(`/api/export?format=${exportFormat}`);
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const ext = exportFormat === "pdf" ? "pdf" : exportFormat === "json" ? "json" : "csv";
+      a.download = `streakkeeper-progress.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      // Graceful fallback
+    } finally {
+      setExportLoading(false);
+    }
+  };
 
   // 1. Profile Submit Handler
   const handleProfileSubmit = async (e: React.FormEvent) => {
@@ -289,6 +409,72 @@ export default function SettingsForms({ initialUser }: SettingsFormsProps) {
         </form>
       </section>
 
+      {/* SECTION: WEB PUSH NOTIFICATIONS */}
+      <section className="p-6 sm:p-8 rounded-2xl bg-surface border border-surfaceBorder shadow-xl">
+        <div className="mb-6">
+          <h2 className="text-xl font-bold text-textPrimary">Push Notifications</h2>
+          <p className="text-xs text-textSecondary mt-1">
+            Receive browser push notifications when your scheduled habit reminders trigger
+          </p>
+        </div>
+
+        {pushFeedback && (
+          <div
+            className={`mb-6 p-3 rounded-xl text-xs flex items-center gap-2 ${
+              pushFeedback.type === "success"
+                ? "bg-frozen/10 border border-frozen/30 text-frozen"
+                : "bg-emberStart/10 border border-emberStart/30 text-emberStart"
+            }`}
+          >
+            <span>{pushFeedback.msg}</span>
+          </div>
+        )}
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl bg-background border border-surfaceBorder">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-textPrimary">
+                Habit Reminder Notifications
+              </span>
+              <span
+                className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ${
+                  pushSubscribed
+                    ? "bg-frozen/15 text-frozen border border-frozen/30"
+                    : "bg-surfaceBorder text-textSecondary"
+                }`}
+              >
+                {pushSubscribed ? "Enabled" : "Disabled"}
+              </span>
+            </div>
+            <p className="text-xs text-textSecondary leading-relaxed">
+              {pushSubscribed
+                ? "You will receive push reminders at your configured habit times."
+                : "Enable push notifications to stay on top of scheduled reminders."}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleTogglePushNotifications}
+            disabled={pushLoading || !pushSupported}
+            className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all shadow-md flex items-center justify-center gap-2 shrink-0 disabled:opacity-50 ${
+              pushSubscribed
+                ? "bg-surfaceBorder hover:bg-surfaceBorder/80 text-textPrimary"
+                : "bg-violet hover:bg-violet/90 text-white shadow-violet/20"
+            }`}
+          >
+            {pushLoading ? (
+              <span>Processing...</span>
+            ) : pushSubscribed ? (
+              <span>Disable Notifications</span>
+            ) : (
+              <span>Enable Notifications</span>
+            )}
+          </button>
+        </div>
+      </section>
+
+
       {/* SECTION 3: CHANGE PASSWORD */}
       <section className="p-6 sm:p-8 rounded-2xl bg-surface border border-surfaceBorder shadow-xl">
         <div className="mb-6">
@@ -364,7 +550,54 @@ export default function SettingsForms({ initialUser }: SettingsFormsProps) {
         </form>
       </section>
 
-      {/* SECTION 4: DANGER ZONE */}
+      {/* SECTION 4: EXPORT PROGRESS DATA */}
+      <section className="p-6 sm:p-8 rounded-2xl bg-surface border border-surfaceBorder shadow-xl">
+        <div className="mb-6">
+          <h2 className="text-xl font-bold text-textPrimary">Export Progress Data</h2>
+          <p className="text-xs text-textSecondary mt-1">
+            Download a full report of your habits, completion logs, and streak heatmaps
+          </p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+          <div className="flex-1">
+            <label className="block text-xs font-semibold text-textSecondary uppercase tracking-wider mb-1.5">
+              Export Format
+            </label>
+            <select
+              value={exportFormat}
+              onChange={(e) => setExportFormat(e.target.value as "csv" | "json" | "pdf")}
+              className="w-full px-4 py-3 rounded-xl bg-background border border-surfaceBorder text-textPrimary text-sm focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet transition-colors cursor-pointer"
+            >
+              <option value="csv">CSV Spreadsheet (.csv — log-by-log rows with streak counts)</option>
+              <option value="json">Structured JSON (.json — complete habits & logs schema)</option>
+              <option value="pdf">PDF Summary Report (.pdf — single-page visual heatmaps & streaks)</option>
+            </select>
+          </div>
+
+          <div className="sm:self-end">
+            <button
+              type="button"
+              onClick={handleExportData}
+              disabled={exportLoading}
+              className="w-full sm:w-auto px-6 py-3 rounded-xl bg-violet hover:bg-violet/90 text-white font-bold text-sm transition-all shadow-md shadow-violet/20 flex items-center justify-center gap-2 disabled:opacity-60 shrink-0"
+            >
+              {exportLoading ? (
+                <span>Generating Export...</span>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                  <span>Export {exportFormat.toUpperCase()}</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 5: DANGER ZONE */}
       <section className="p-6 sm:p-8 rounded-2xl bg-surface border border-emberStart/30 shadow-xl">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>

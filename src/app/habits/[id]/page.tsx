@@ -4,6 +4,10 @@ import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import HeatmapCalendar from "@/components/HeatmapCalendar";
 import HabitDetailActions from "@/components/HabitDetailActions";
+import ReminderSettings from "@/components/ReminderSettings";
+import CoachCard from "@/components/CoachCard";
+import { suggestReminderTime, generateRecommendation, getBestPerformanceWindow } from "@/lib/analyticsEngine";
+import { Clock } from "lucide-react";
 
 export const revalidate = 0;
 
@@ -17,29 +21,33 @@ export default async function HabitDetailPage({
   const userId = user.id || "demo-user-id";
   const { id: habitId } = await params;
 
-  let habit = null;
-
-  try {
-    habit = await prisma.habit.findFirst({
-      where: {
-        id: habitId,
-        userId: { in: [userId, "demo-user-id"] },
-        archivedAt: null,
+  const habit = await prisma.habit.findFirst({
+    where: {
+      id: habitId,
+      userId: { in: [userId, "demo-user-id"] },
+      archivedAt: null,
+    },
+    include: {
+      habitLogs: {
+        orderBy: { date: "desc" },
       },
-      include: {
-        habitLogs: {
-          orderBy: { date: "desc" },
-        },
-      },
-    });
-  } catch {
-    // Fallback if DB disconnected
-  }
+    },
+  });
 
   if (!habit) {
     // If habit doesn't belong to current user or doesn't exist
     notFound();
   }
+
+  const [reminders, coachSuggestion] = await Promise.all([
+    prisma.reminder.findMany({
+      where: { habitId },
+      orderBy: { createdAt: "desc" },
+    }).catch(() => []),
+    prisma.coachSuggestion.findUnique({
+      where: { habitId },
+    }).catch(() => null),
+  ]);
 
   // Calculate stats
   const totalCompletions = habit.habitLogs.filter((l) => l.status === "DONE").length;
@@ -105,6 +113,36 @@ export default async function HabitDetailPage({
   const formattedLogs = habit.habitLogs.map((log) => ({
     date: new Date(log.date).toISOString().split("T")[0],
     status: log.status as "DONE" | "MISSED" | "FROZEN",
+    loggedAt: log.loggedAt,
+  }));
+
+  // Personalization logic: suggest reminder time if >= 10 completed logs exist
+  const suggestedTime = suggestReminderTime(habit.habitLogs);
+
+  // Recommendation logic
+  const recommendation = generateRecommendation(
+    {
+      ...habit,
+      currentStreak,
+      longestStreak,
+    },
+    formattedLogs,
+    {
+      goalType: habit.goalType,
+      goalTarget: habit.goalTarget,
+    }
+  );
+
+  // Performance Window Analysis
+  const performanceWindow = getBestPerformanceWindow(habit.habitLogs);
+
+  const initialReminders = reminders.map((r) => ({
+    id: r.id,
+    habitId: r.habitId,
+    time: r.time,
+    daysOfWeek: r.daysOfWeek,
+    enabled: r.enabled,
+    lastSentAt: r.lastSentAt ? r.lastSentAt.toISOString() : null,
   }));
 
   return (
@@ -129,6 +167,52 @@ export default async function HabitDetailPage({
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 flex-1 w-full space-y-8">
+        {/* AI Coach Suggestion Card */}
+        <CoachCard
+          habitId={habit.id}
+          initialSuggestion={coachSuggestion?.suggestionText}
+        />
+
+        {/* Highlighted Recommendation Card */}
+
+        {recommendation && (
+          <div className="p-0.5 rounded-2xl bg-gradient-to-r from-[#FF6B6B] to-[#FF9F1C] shadow-lg shadow-[#FF6B6B]/10">
+            <div className="p-5 sm:p-6 rounded-[14px] bg-[#15151E] flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-r from-[#FF6B6B]/20 to-[#FF9F1C]/20 border border-[#FF6B6B]/40 flex items-center justify-center text-[#FF9F1C] shrink-0 font-bold text-lg">
+                  💡
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-[#FF6B6B] to-[#FF9F1C]">
+                    Smart Insight
+                  </div>
+                  <p className="text-sm sm:text-base font-semibold text-textPrimary mt-0.5">
+                    {recommendation}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Performance Window Insight Card */}
+        {performanceWindow && performanceWindow.summary && (
+          <div className="p-5 rounded-2xl bg-[#15151E] border border-[#232336] border-l-4 border-l-[#8B5CF6] flex items-center justify-between gap-4 shadow-xl">
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-[#8B5CF6]/15 border border-[#8B5CF6]/30 flex items-center justify-center text-[#8B5CF6] shrink-0 font-bold">
+                <Clock className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wider text-[#8B5CF6]">
+                  Performance Window
+                </div>
+                <p className="text-sm sm:text-base font-semibold text-textPrimary mt-0.5">
+                  {performanceWindow.summary}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
         {/* Habit Header Card */}
         <div className="p-6 sm:p-8 rounded-2xl bg-surface border border-surfaceBorder shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-3">
@@ -215,6 +299,13 @@ export default async function HabitDetailPage({
             </div>
           </div>
         </div>
+
+        {/* Reminder Settings Section */}
+        <ReminderSettings
+          habitId={habit.id}
+          initialReminders={initialReminders}
+          suggestedTime={suggestedTime}
+        />
       </main>
     </div>
   );

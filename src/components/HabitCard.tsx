@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { enqueueOfflineCheckoff } from "@/lib/offlineQueue";
 
 export interface HabitCardProps {
   id?: string;
@@ -12,6 +13,8 @@ export interface HabitCardProps {
   todayStatus: "DONE" | "MISSED" | "FROZEN" | "PENDING" | null;
   freezesAvailable: number;
   frequency?: string;
+  groupColor?: string | null;
+  groupName?: string | null;
 }
 
 export default function HabitCard({
@@ -23,14 +26,25 @@ export default function HabitCard({
   todayStatus,
   freezesAvailable,
   frequency = "DAILY",
+  groupColor,
+  groupName,
 }: HabitCardProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [status, setStatus] = useState<"DONE" | "MISSED" | "FROZEN" | "PENDING" | null>(todayStatus);
+  const [streak, setStreak] = useState<number>(currentStreak);
 
-  const targetId = habitId || id || "";
+  const rawId = habitId || id || "";
+  const targetId = rawId.includes("/") ? rawId.split("/").filter(Boolean).pop() || "" : rawId;
+
+
+  useEffect(() => {
+    setStatus(todayStatus);
+    setStreak(currentStreak);
+  }, [todayStatus, currentStreak]);
 
   // Check if streak is a milestone (7, 30, 100 days)
-  const isMilestone = [7, 30, 100].includes(currentStreak);
+  const isMilestone = [7, 30, 100].includes(streak);
 
   const handleCardClick = (e: React.MouseEvent) => {
     // Avoid triggering card navigation when interactive buttons/links inside are clicked
@@ -45,10 +59,25 @@ export default function HabitCard({
 
   const handleMarkDone = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!targetId) return;
+    if (!targetId || isSubmitting) return;
+
     setIsSubmitting(true);
+    const prevStatus = status;
+    const prevStreak = streak;
+
+    // Optimistic UI update: status -> DONE, streak -> streak + 1
+    setStatus("DONE");
+    setStreak((prev) => prev + 1);
+
+    // If browser is currently offline, queue check-off in localStorage
+    if (typeof window !== "undefined" && !navigator.onLine) {
+      enqueueOfflineCheckoff(targetId);
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
-      await fetch(`/api/habits/${targetId}/logs`, {
+      const res = await fetch(`/api/habits/${targetId}/logs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -56,9 +85,53 @@ export default function HabitCard({
           status: "DONE",
         }),
       });
-      router.refresh();
+
+      if (!res.ok) {
+        setStatus(prevStatus);
+        setStreak(prevStreak);
+      } else {
+        router.refresh();
+      }
     } catch {
-      // Graceful fallback
+      // Fallback to offline queue if network request failed due to disconnection
+      if (typeof window !== "undefined" && !navigator.onLine) {
+        enqueueOfflineCheckoff(targetId);
+      } else {
+        setStatus(prevStatus);
+        setStreak(prevStreak);
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+
+  const handleUndoDone = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!targetId || isSubmitting) return;
+
+    setIsSubmitting(true);
+    const prevStatus = status;
+    const prevStreak = streak;
+
+    // Optimistic UI update: status -> null, streak -> streak - 1
+    setStatus(null);
+    setStreak((prev) => Math.max(0, prev - 1));
+
+    try {
+      const res = await fetch(`/api/habits/${targetId}/logs`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        setStatus(prevStatus);
+        setStreak(prevStreak);
+      } else {
+        router.refresh();
+      }
+    } catch {
+      setStatus(prevStatus);
+      setStreak(prevStreak);
     } finally {
       setIsSubmitting(false);
     }
@@ -66,7 +139,7 @@ export default function HabitCard({
 
   const handleFreeze = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!targetId) return;
+    if (!targetId || isSubmitting) return;
     setIsSubmitting(true);
     try {
       await fetch(`/api/habits/${targetId}/freeze`, {
@@ -81,17 +154,28 @@ export default function HabitCard({
     }
   };
 
+
   return (
     <div
       onClick={handleCardClick}
-      className="group relative rounded-xl bg-surface border border-surfaceBorder hover:border-[#383852] transition-all duration-200 p-5 flex flex-col justify-between cursor-pointer select-none shadow-sm hover:shadow-md"
+      className="group relative rounded-xl bg-surface border border-surfaceBorder hover:border-[#383852] transition-all duration-200 p-5 flex flex-col justify-between cursor-pointer select-none shadow-sm hover:shadow-md overflow-hidden"
+      style={groupColor ? { borderLeft: `4px solid ${groupColor}` } : undefined}
     >
       {/* Top Section */}
       <div>
         <div className="flex items-start justify-between gap-3 mb-3">
-          <h3 className="font-semibold text-textPrimary text-base group-hover:text-white transition-colors line-clamp-1">
-            {name}
-          </h3>
+          <div className="flex items-center gap-2">
+            {groupColor && (
+              <span
+                className="w-2.5 h-2.5 rounded-full shrink-0 shadow-sm"
+                style={{ backgroundColor: groupColor }}
+                title={groupName || undefined}
+              />
+            )}
+            <h3 className="font-semibold text-textPrimary text-base group-hover:text-white transition-colors line-clamp-1">
+              {name}
+            </h3>
+          </div>
 
           {/* Flame Icon & Streak Counter */}
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-background border border-surfaceBorder shrink-0">
@@ -109,7 +193,7 @@ export default function HabitCard({
               </svg>
             </div>
             <span className="font-mono font-bold text-xs text-transparent bg-clip-text bg-ember-gradient">
-              {currentStreak}
+              {streak}
             </span>
           </div>
         </div>
@@ -125,43 +209,29 @@ export default function HabitCard({
 
       {/* Bottom Action / Status Area */}
       <div className="pt-3 border-t border-surfaceBorder/60">
-        {/* PENDING State: Mark Done Button */}
-        {todayStatus === "PENDING" && (
+        {/* DONE State: Coral Button with Checkmark (Clickable to Undo) */}
+        {status === "DONE" && (
           <button
-            onClick={handleMarkDone}
+            type="button"
+            onClick={handleUndoDone}
             disabled={isSubmitting}
-            className="w-full py-2.5 px-4 rounded-xl bg-ember-gradient text-background font-bold text-sm shadow-md shadow-[#FF6B6B]/20 hover:shadow-lg hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 transition-all flex items-center justify-center gap-2"
+            title="Click to undo completion"
+            className="w-full py-2 px-3 rounded-lg bg-emberStart text-background text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm hover:opacity-90 active:scale-[0.99] transition-all duration-200 cursor-pointer disabled:opacity-60"
           >
-            {isSubmitting ? (
-              <span className="flex items-center gap-1.5">
-                <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                Saving...
-              </span>
-            ) : (
-              <span>Mark Done</span>
-            )}
+            <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+            <span>{isSubmitting ? "Updating..." : "Completed today"}</span>
           </button>
         )}
 
-        {/* DONE State: Coral Badge with Dark Text */}
-        {todayStatus === "DONE" && (
-          <div className="w-full py-2 px-3 rounded-lg bg-emberStart text-background text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-            </svg>
-            <span>Completed today</span>
-          </div>
-        )}
-
         {/* MISSED State: Muted Plum-Gray with "Use a freeze?" link */}
-        {todayStatus === "MISSED" && (
+        {status === "MISSED" && (
           <div className="w-full py-2 px-3 rounded-lg bg-muted/30 border border-muted/50 text-textSecondary text-xs flex items-center justify-between">
             <span className="font-medium text-textSecondary">Missed today</span>
             {freezesAvailable > 0 && (
               <button
+                type="button"
                 onClick={handleFreeze}
                 disabled={isSubmitting}
                 className="text-xs font-semibold text-violet hover:underline transition-colors"
@@ -173,12 +243,28 @@ export default function HabitCard({
         )}
 
         {/* FROZEN State: Icy Cyan Badge */}
-        {todayStatus === "FROZEN" && (
+        {status === "FROZEN" && (
           <div className="w-full py-2 px-3 rounded-lg bg-frozen/10 border border-frozen/30 text-frozen text-xs font-semibold flex items-center justify-center gap-1.5">
             <span>Streak frozen ❄️</span>
           </div>
         )}
+
+        {/* UNCOMPLETED State (null or PENDING): Mark as complete button */}
+        {(!status || status === "PENDING") && (
+          <button
+            type="button"
+            onClick={handleMarkDone}
+            disabled={isSubmitting}
+            className="w-full py-2 px-3 rounded-lg bg-surface border border-surfaceBorder hover:border-violet/60 hover:bg-violet/10 text-textPrimary text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm active:scale-[0.99] transition-all duration-200 cursor-pointer disabled:opacity-60"
+          >
+            <svg className="w-4 h-4 text-textSecondary shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+            <span>{isSubmitting ? "Saving..." : "Mark as complete"}</span>
+          </button>
+        )}
       </div>
     </div>
+
   );
 }

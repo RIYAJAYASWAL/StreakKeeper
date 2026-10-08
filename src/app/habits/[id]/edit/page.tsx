@@ -25,8 +25,12 @@ export default function EditHabitPage({ params }: { params: Promise<{ id: string
     frequency: "DAILY" as "DAILY" | "WEEKLY" | "CUSTOM",
     targetDays: [] as string[],
     isPublic: false,
+    goalType: "NONE" as "NONE" | "BUILD_STREAK" | "HIT_TARGET_RATE",
+    goalTarget: "" as string | number,
+    groupId: "",
   });
 
+  const [groups, setGroups] = useState<Array<{ id: string; name: string; color: string }>>([]);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
@@ -39,14 +43,23 @@ export default function EditHabitPage({ params }: { params: Promise<{ id: string
   }>({});
 
   useEffect(() => {
-    async function loadHabit() {
+    async function loadData() {
       try {
-        const res = await fetch(`/api/habits/${habitId}`);
-        if (!res.ok) {
+        const [habitRes, groupsRes] = await Promise.all([
+          fetch(`/api/habits/${habitId}`),
+          fetch("/api/groups"),
+        ]);
+
+        if (groupsRes.ok) {
+          const gData = await groupsRes.json();
+          if (Array.isArray(gData.groups)) setGroups(gData.groups);
+        }
+
+        if (!habitRes.ok) {
           router.push("/dashboard");
           return;
         }
-        const data = await res.json();
+        const data = await habitRes.json();
         if (data.habit) {
           setFormData({
             name: data.habit.name || "",
@@ -54,6 +67,9 @@ export default function EditHabitPage({ params }: { params: Promise<{ id: string
             frequency: data.habit.frequency || "DAILY",
             targetDays: data.habit.targetDays || [],
             isPublic: Boolean(data.habit.isPublic),
+            goalType: data.habit.goalType || "NONE",
+            goalTarget: data.habit.goalTarget ?? "",
+            groupId: data.habit.groupId || "",
           });
         }
       } catch {
@@ -62,7 +78,7 @@ export default function EditHabitPage({ params }: { params: Promise<{ id: string
         setIsInitialLoading(false);
       }
     }
-    loadHabit();
+    loadData();
   }, [habitId, router]);
 
   const handleFrequencyChange = (freq: "DAILY" | "WEEKLY" | "CUSTOM") => {
@@ -121,6 +137,9 @@ export default function EditHabitPage({ params }: { params: Promise<{ id: string
           frequency: formData.frequency,
           targetDays: formData.frequency === "CUSTOM" ? formData.targetDays : [],
           isPublic: formData.isPublic,
+          goalType: formData.goalType,
+          goalTarget: formData.goalType !== "NONE" && formData.goalTarget !== "" ? Number(formData.goalTarget) : null,
+          groupId: formData.groupId || null,
         }),
       });
 
@@ -318,6 +337,71 @@ export default function EditHabitPage({ params }: { params: Promise<{ id: string
               )}
             </div>
           )}
+
+          {/* Group Selector */}
+          <div>
+            <label htmlFor="group" className="block text-xs font-semibold text-textSecondary uppercase tracking-wider mb-2">
+              Habit Group <span className="text-textSecondary/60 font-normal lowercase">(optional)</span>
+            </label>
+            <select
+              id="group"
+              value={formData.groupId}
+              onChange={(e) => setFormData({ ...formData, groupId: e.target.value })}
+              className="w-full px-4 py-3 rounded-xl bg-background border border-surfaceBorder text-textPrimary text-sm focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet transition-colors"
+            >
+              <option value="">No Group (Ungrouped)</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Goal Setting Section */}
+          <div className="p-4 rounded-xl bg-background/60 border border-surfaceBorder space-y-4">
+            <div>
+              <label htmlFor="goalType" className="block text-xs font-semibold text-textSecondary uppercase tracking-wider mb-2">
+                Set a Goal
+              </label>
+              <select
+                id="goalType"
+                value={formData.goalType}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    goalType: e.target.value as "NONE" | "BUILD_STREAK" | "HIT_TARGET_RATE",
+                    goalTarget: e.target.value === "NONE" ? "" : formData.goalTarget,
+                  })
+                }
+                className="w-full px-4 py-3 rounded-xl bg-background border border-surfaceBorder text-textPrimary text-sm focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet transition-colors"
+              >
+                <option value="NONE">No Goal Set</option>
+                <option value="BUILD_STREAK">Build Streak (Target Days)</option>
+                <option value="HIT_TARGET_RATE">Hit Target Completion Rate (%)</option>
+              </select>
+            </div>
+
+            {formData.goalType !== "NONE" && (
+              <div>
+                <label htmlFor="goalTarget" className="block text-xs font-semibold text-textSecondary uppercase tracking-wider mb-2">
+                  {formData.goalType === "BUILD_STREAK"
+                    ? "Target Streak Length (Days)"
+                    : "Target Completion Rate (%)"}
+                </label>
+                <input
+                  id="goalTarget"
+                  type="number"
+                  min={1}
+                  max={formData.goalType === "HIT_TARGET_RATE" ? 100 : 9999}
+                  placeholder={formData.goalType === "BUILD_STREAK" ? "e.g. 14, 30, 100" : "e.g. 80, 90"}
+                  value={formData.goalTarget}
+                  onChange={(e) => setFormData({ ...formData, goalTarget: e.target.value })}
+                  className="w-full px-4 py-3 rounded-xl bg-background border border-surfaceBorder text-textPrimary text-sm focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet transition-colors"
+                />
+              </div>
+            )}
+          </div>
 
           {/* Shareable Public Link Checkbox */}
           <div className="pt-2">
