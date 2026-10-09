@@ -4,8 +4,13 @@ import prisma from "@/lib/prisma";
 import { calculateCurrentStreak, calculateLongestStreak } from "@/lib/streakEngine";
 import { calculateHabitAnalytics, getBestPerformanceWindow } from "@/lib/analyticsEngine";
 import { detectRelapsePatterns } from "@/lib/relapseDetector";
+import {
+  compareBuckets,
+  computeCorrelation,
+  describeCorrelation,
+} from "@/lib/correlationEngine";
 
-const SYSTEM_PROMPT = `You are a habit coach. You will be given real statistics about a user's habit. Give exactly one short, specific suggestion (2-3 sentences max) that directly references the numbers provided. Do not give generic advice that could apply to anyone. If the data shows no clear pattern, say so honestly instead of inventing one.`;
+const SYSTEM_PROMPT = `You are a habit coach. You will be given real statistics about a user's habit. Give exactly one short, specific suggestion (2-3 sentences max) that directly references the numbers provided. Do not give generic advice that could apply to anyone. If the data shows no clear pattern, say so honestly instead of inventing one. If sleep-study correlation information is provided, you may reference it, but describe only a tendency to coincide and never imply causation. Say so honestly if the relationship is weak or the sample is small.`;
 
 async function getUserId() {
   const session = await getAuthSession();
@@ -14,17 +19,19 @@ async function getUserId() {
 }
 
 function generateFallbackSuggestion(data: any): string {
-  const { habitName, currentStreak, longestStreak, completionRate, bestDay, bestTimeRange, totalLogs } = data;
+  const { habitName, currentStreak, longestStreak, completionRate, bestDay, bestTimeRange, totalLogs, correlationInsight } = data;
+  const withCorrelation = (suggestion: string) =>
+    correlationInsight ? `${suggestion} ${correlationInsight}` : suggestion;
 
   if (!totalLogs || totalLogs < 5) {
-    return `You've logged ${totalLogs || 0} check-ins for ${habitName}. Keep checking in regularly to unlock data-driven coaching insights.`;
+    return withCorrelation(`You've logged ${totalLogs || 0} check-ins for ${habitName}. Keep checking in regularly to unlock data-driven coaching insights.`);
   }
 
   if (bestDay && bestTimeRange) {
-    return `For ${habitName}, your data shows you're most consistent on ${bestDay} during ${bestTimeRange} with a ${completionRate} completion rate. Leverage this momentum to push your current ${currentStreak}-day streak closer to your record of ${longestStreak} days.`;
+    return withCorrelation(`For ${habitName}, your data shows you're most consistent on ${bestDay} during ${bestTimeRange} with a ${completionRate} completion rate. Leverage this momentum to push your current ${currentStreak}-day streak closer to your record of ${longestStreak} days.`);
   }
 
-  return `Your current streak for ${habitName} is ${currentStreak} day${currentStreak === 1 ? "" : "s"} against a record of ${longestStreak} days with a ${completionRate} overall completion rate. Maintaining a consistent daily check-in time will help build higher consistency.`;
+  return withCorrelation(`Your current streak for ${habitName} is ${currentStreak} day${currentStreak === 1 ? "" : "s"} against a record of ${longestStreak} days with a ${completionRate} overall completion rate. Maintaining a consistent daily check-in time will help build higher consistency.`);
 }
 
 export async function POST(request: Request) {
@@ -112,6 +119,48 @@ export async function POST(request: Request) {
     const relapsePatterns = detectRelapsePatterns(logs as any);
     const performanceWindow = getBestPerformanceWindow(logs as any);
 
+    const numericHabits = await prisma.habit.findMany({
+      where: {
+        userId: habit.userId,
+        archivedAt: null,
+        isNumeric: true,
+        unit: { equals: "hours", mode: "insensitive" },
+      },
+      select: {
+        id: true,
+        name: true,
+        unit: true,
+        habitLogs: {
+          where: { value: { not: null } },
+          select: { date: true, value: true },
+        },
+      },
+    });
+
+    const sleepHabit = numericHabits.find((item) => /sleep/i.test(item.name));
+    const studyHabit = numericHabits.find((item) => /study/i.test(item.name));
+    const sleepStudyCorrelation =
+      sleepHabit && studyHabit
+        ? (() => {
+            const sleepLogs = sleepHabit.habitLogs.map((log) => ({
+              date: log.date,
+              value: log.value,
+            }));
+            const studyLogs = studyHabit.habitLogs.map((log) => ({
+              date: log.date,
+              value: log.value,
+            }));
+            const correlation = computeCorrelation(sleepLogs, studyLogs);
+            const bucketAverages = compareBuckets(sleepLogs, studyLogs);
+            return {
+              r: correlation.r,
+              n: correlation.n,
+              bucketAverages,
+              description: describeCorrelation(correlation, bucketAverages),
+            };
+          })()
+        : null;
+
     const structuredSummary = {
       habitName: habit.name,
       frequency: habit.frequency,
@@ -122,6 +171,8 @@ export async function POST(request: Request) {
       bestDay: performanceWindow.bestDay,
       bestTimeRange: performanceWindow.bestTimeRange,
       relapsePatterns: relapsePatterns.map((p) => ({ description: p.description, type: p.type })),
+      sleepStudyCorrelation,
+      correlationInsight: sleepStudyCorrelation?.description || null,
       goalType: habit.goalType,
       goalTarget: habit.goalTarget,
     };

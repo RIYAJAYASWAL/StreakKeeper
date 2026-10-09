@@ -34,6 +34,7 @@ export async function GET() {
       data: {
         userId,
         name: "Morning Meditation",
+        slug: "morning-meditation",
         description: "15 minutes of mindfulness & breathing exercises every morning.",
         frequency: "DAILY",
         freezesAvailable: 3,
@@ -64,6 +65,7 @@ export async function GET() {
       data: {
         userId,
         name: "Deep Work Coding",
+        slug: "deep-work-coding",
         description: "Focus blocks on building side projects without distractions.",
         frequency: "CUSTOM",
         targetDays: ["MON", "WED", "FRI"],
@@ -94,6 +96,7 @@ export async function GET() {
       data: {
         userId,
         name: "Evening Reading",
+        slug: "evening-reading",
         description: "Read 20 pages of non-fiction or technology books before sleep.",
         frequency: "DAILY",
         freezesAvailable: 1,
@@ -122,6 +125,7 @@ export async function GET() {
       data: {
         userId,
         name: "Cold Plunge & Hydration",
+        slug: "cold-plunge-hydration",
         description: "3-minute cold shower and 1L of water upon waking.",
         frequency: "DAILY",
         freezesAvailable: 3,

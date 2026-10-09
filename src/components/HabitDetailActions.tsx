@@ -6,12 +6,14 @@ import { useRouter } from "next/navigation";
 
 interface HabitDetailActionsProps {
   habitId: string;
+  habitSlug: string;
   isPublic: boolean;
   publicId: string | null;
 }
 
 export default function HabitDetailActions({
   habitId,
+  habitSlug,
   isPublic: initialIsPublic,
   publicId: initialPublicId,
 }: HabitDetailActionsProps) {
@@ -105,7 +107,7 @@ export default function HabitDetailActions({
 
         {/* Edit Button */}
         <Link
-          href={`/habits/${habitId}/edit`}
+          href={`/habits/${habitSlug}/edit`}
           className="px-4 py-2 rounded-xl border border-violet text-violet hover:bg-violet/10 font-semibold text-sm transition-all"
         >
           Edit Habit

@@ -68,32 +68,35 @@ self.addEventListener("fetch", (event) => {
 
 // 4. Web Push Notification Handlers
 self.addEventListener("push", function (event) {
+  let payload = {};
   if (event.data) {
-    let payload = {};
     try {
       payload = event.data.json();
     } catch (e) {
       payload = { title: "StreakKeeper Reminder", body: event.data.text() };
     }
-
-    const title = payload.title || "StreakKeeper Reminder";
-    const options = {
-      body: payload.body || "Time to check off your habit! 🔥",
-      icon: payload.icon || "/icons/icon-192.png",
-      badge: payload.badge || "/icons/icon-192.png",
-      data: {
-        url: payload.url || "/dashboard",
-      },
-    };
-
-    event.waitUntil(self.registration.showNotification(title, options));
   }
+
+  const title = payload.title || "StreakKeeper Reminder";
+  const options = {
+    body: payload.body || "Time to check off your habit! 🔥",
+    icon: payload.icon || "/icons/icon-192.png",
+    badge: payload.badge || "/icons/icon-192.png",
+    data: {
+      url: payload.url || "/dashboard",
+    },
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
 });
 
 self.addEventListener("notificationclick", function (event) {
   event.notification.close();
 
-  const urlToOpen = event.notification.data?.url || "/dashboard";
+  const urlToOpen = new URL(
+    event.notification.data?.url || "/dashboard",
+    self.location.origin
+  ).href;
 
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then(function (clientList) {

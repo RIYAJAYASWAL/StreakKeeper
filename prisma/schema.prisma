@@ -59,7 +59,10 @@ model Habit {
   userId           String
   groupId          String?
   name             String
+  slug             String
   description      String?
+  unit             String?
+  isNumeric        Boolean   @default(false)
   frequency        Frequency
   targetDays       String[]  // Array of day identifiers (e.g. ["MON", "WED", "FRI"]) when frequency is CUSTOM
   freezesAvailable Int       @default(3)
@@ -79,6 +82,7 @@ model Habit {
 
   @@index([userId])
   @@index([groupId])
+  @@unique([userId, slug])
 }
 
 model HabitLog {
@@ -86,6 +90,7 @@ model HabitLog {
   habitId   String
   date      DateTime  @db.Date // Represents the user's LOCAL day (date-only)
   status    LogStatus
+  value     Float?
   loggedAt  DateTime  @default(now()) // Timestamp when the action was recorded
   createdAt DateTime  @default(now())
 
@@ -130,6 +135,3 @@ model CoachSuggestion {
 
   habit Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
 }
-
-
-

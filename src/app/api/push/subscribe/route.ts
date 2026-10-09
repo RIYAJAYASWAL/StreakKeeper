@@ -16,7 +16,9 @@ export async function POST(request: Request) {
     const endpoint = subscription?.endpoint || body?.endpoint;
     const keys = subscription?.keys || body?.keys;
 
+    console.log("POST /api/push/subscribe: received subscription request");
     if (!endpoint || !keys) {
+      console.error("POST /api/push/subscribe: missing endpoint or keys");
       return NextResponse.json(
         { error: "Invalid subscription payload. Endpoint and keys are required." },
         { status: 400 }
@@ -37,6 +39,7 @@ export async function POST(request: Request) {
       },
     });
 
+    console.log("POST /api/push/subscribe: subscription saved");
     return NextResponse.json({ success: true, subscription: pushSub }, { status: 201 });
   } catch (error) {
     console.error("POST /api/push/subscribe error:", error);

@@ -210,3 +210,27 @@ export function calculateLongestStreak(
 
   return maxStreak;
 }
+
+export function calculateLast30DayCompletionRate(
+  logs: HabitLog[],
+  today: string
+): number {
+  const logMap = new Map<string, LogStatus>();
+  logs.forEach((log) => {
+    const dateKey = typeof log.date === "string"
+      ? log.date.split("T")[0]
+      : log.date.toISOString().split("T")[0];
+    logMap.set(dateKey, log.status);
+  });
+
+  const end = new Date(`${today}T00:00:00.000Z`);
+  let completedDays = 0;
+  for (let offset = 0; offset < 30; offset += 1) {
+    const date = new Date(end);
+    date.setUTCDate(date.getUTCDate() - offset);
+    const status = logMap.get(date.toISOString().split("T")[0]);
+    if (status === "DONE" || status === "FROZEN") completedDays += 1;
+  }
+
+  return Math.round((completedDays / 30) * 100);
+}

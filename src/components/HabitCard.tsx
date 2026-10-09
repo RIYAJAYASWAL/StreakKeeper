@@ -7,12 +7,15 @@ import { enqueueOfflineCheckoff, notifyHabitProgressChanged } from "@/lib/offlin
 export interface HabitCardProps {
   id?: string;
   habitId?: string;
+  slug?: string;
   name: string;
   description?: string | null;
   currentStreak: number;
   todayStatus: "DONE" | "MISSED" | "FROZEN" | "PENDING" | null;
   freezesAvailable: number;
   frequency?: string;
+  isNumeric?: boolean;
+  unit?: string | null;
   groupColor?: string | null;
   groupName?: string | null;
 }
@@ -20,12 +23,15 @@ export interface HabitCardProps {
 export default function HabitCard({
   id,
   habitId,
+  slug,
   name,
   description,
   currentStreak,
   todayStatus,
   freezesAvailable,
   frequency = "DAILY",
+  isNumeric = false,
+  unit,
   groupColor,
   groupName,
 }: HabitCardProps) {
@@ -33,6 +39,9 @@ export default function HabitCard({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [status, setStatus] = useState<"DONE" | "MISSED" | "FROZEN" | "PENDING" | null>(todayStatus);
   const [streak, setStreak] = useState<number>(currentStreak);
+  const [showValuePrompt, setShowValuePrompt] = useState(false);
+  const [valueInput, setValueInput] = useState("");
+  const [logError, setLogError] = useState<string | null>(null);
 
   const rawId = habitId || id || "";
   const targetId = rawId.includes("/") ? rawId.split("/").filter(Boolean).pop() || "" : rawId;
@@ -53,14 +62,13 @@ export default function HabitCard({
       return;
     }
     if (targetId) {
-      router.push(`/habits/${targetId}`);
+      router.push(`/habits/${slug || targetId}`);
     }
   };
 
-  const handleMarkDone = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const saveCheckoff = async (value: number | null) => {
     if (!targetId || isSubmitting) return;
-
+    setLogError(null);
     setIsSubmitting(true);
     const prevStatus = status;
     const prevStreak = streak;
@@ -71,7 +79,8 @@ export default function HabitCard({
 
     // If browser is currently offline, queue check-off in localStorage
     if (typeof window !== "undefined" && !navigator.onLine) {
-      enqueueOfflineCheckoff(targetId);
+      enqueueOfflineCheckoff(targetId, undefined, value);
+      setShowValuePrompt(false);
       setIsSubmitting(false);
       return;
     }
@@ -83,27 +92,65 @@ export default function HabitCard({
         body: JSON.stringify({
           date: new Date().toISOString().split("T")[0],
           status: "DONE",
+          value,
         }),
       });
 
       if (!res.ok) {
+        const response = await res.json().catch(() => ({}));
+        setLogError(response.error || "Failed to save habit log.");
         setStatus(prevStatus);
         setStreak(prevStreak);
       } else {
+        setShowValuePrompt(false);
+        setValueInput("");
         notifyHabitProgressChanged();
         router.refresh();
       }
     } catch {
       // Fallback to offline queue if network request failed due to disconnection
       if (typeof window !== "undefined" && !navigator.onLine) {
-        enqueueOfflineCheckoff(targetId);
+        enqueueOfflineCheckoff(targetId, undefined, value);
+        setShowValuePrompt(false);
+        setValueInput("");
       } else {
+        setLogError("Failed to save habit log. Please try again.");
         setStatus(prevStatus);
         setStreak(prevStreak);
       }
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleMarkDone = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!targetId || isSubmitting) return;
+    setLogError(null);
+    if (isNumeric) {
+      setValueInput("");
+      setShowValuePrompt(true);
+    } else {
+      void saveCheckoff(null);
+    }
+  };
+
+  const handleValueSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!valueInput.trim()) {
+      setLogError("Enter a value.");
+      return;
+    }
+    const value = Number(valueInput);
+    if (!Number.isFinite(value)) {
+      setLogError("Enter a valid number.");
+      return;
+    }
+    if (/^hours?$/i.test(unit || "") && (value < 0 || value > 24)) {
+      setLogError("Hours must be between 0 and 24.");
+      return;
+    }
+    void saveCheckoff(value);
   };
 
 
@@ -158,6 +205,7 @@ export default function HabitCard({
 
 
   return (
+    <>
     <div
       onClick={handleCardClick}
       className="group relative rounded-xl bg-surface border border-surfaceBorder hover:border-[#383852] transition-all duration-200 p-5 flex flex-col justify-between cursor-pointer select-none shadow-sm hover:shadow-md overflow-hidden"
@@ -211,6 +259,7 @@ export default function HabitCard({
 
       {/* Bottom Action / Status Area */}
       <div className="pt-3 border-t border-surfaceBorder/60">
+        {logError && <p className="mb-2 text-xs text-emberStart">{logError}</p>}
         {/* DONE State: Coral Button with Checkmark (Clickable to Undo) */}
         {status === "DONE" && (
           <button
@@ -267,6 +316,56 @@ export default function HabitCard({
         )}
       </div>
     </div>
-
+    {showValuePrompt && (
+      <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <form
+          onSubmit={handleValueSubmit}
+          onClick={(event) => event.stopPropagation()}
+          className="w-full max-w-sm space-y-4 rounded-2xl bg-surface border border-surfaceBorder p-6 shadow-2xl"
+        >
+          <div>
+            <h3 className="text-lg font-bold text-textPrimary">Log {name}</h3>
+            <p className="mt-1 text-xs text-textSecondary">
+              {name.toLowerCase().includes("sleep")
+                ? "Log sleep on the date you wake up."
+                : "Enter today's value."}
+            </p>
+          </div>
+          <label className="block text-xs font-semibold text-textSecondary">
+            Value ({unit || "number"})
+            <input
+              autoFocus
+              type="number"
+              step="any"
+              min={/^hours?$/i.test(unit || "") ? 0 : undefined}
+              max={/^hours?$/i.test(unit || "") ? 24 : undefined}
+              required
+              value={valueInput}
+              onChange={(event) => setValueInput(event.target.value)}
+              className="mt-1.5 w-full px-3 py-2.5 rounded-xl bg-background border border-surfaceBorder text-textPrimary text-sm focus:outline-none focus:border-violet"
+            />
+          </label>
+          {logError && <p className="text-xs text-emberStart">{logError}</p>}
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => setShowValuePrompt(false)}
+              disabled={isSubmitting}
+              className="flex-1 py-2.5 rounded-xl bg-background border border-surfaceBorder text-textSecondary text-sm font-semibold disabled:opacity-60"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="flex-1 py-2.5 rounded-xl bg-emberStart text-background text-sm font-bold disabled:opacity-60"
+            >
+              {isSubmitting ? "Saving..." : "Save value"}
+            </button>
+          </div>
+        </form>
+      </div>
+    )}
+    </>
   );
 }

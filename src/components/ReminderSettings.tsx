@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Bell, Clock, Plus, Trash2, Check, Sparkles } from "lucide-react";
+import { ensurePushSubscription } from "@/lib/pushSubscription";
 
 export interface ReminderItem {
   id: string;
@@ -97,6 +98,8 @@ export default function ReminderSettings({
 
     setIsSubmitting(true);
     try {
+      await ensurePushSubscription();
+
       const res = await fetch(`/api/habits/${habitId}/reminders`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -114,8 +117,8 @@ export default function ReminderSettings({
 
       const newReminder = await res.json();
       setReminders((prev) => [newReminder, ...prev]);
-    } catch (err: any) {
-      setErrorMsg(err.message || "Failed to save reminder.");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Failed to save reminder.");
     } finally {
       setIsSubmitting(false);
     }

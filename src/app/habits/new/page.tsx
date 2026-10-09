@@ -20,6 +20,8 @@ export default function NewHabitPage() {
   const [formData, setFormData] = useState({
     name: "",
     description: "",
+    isNumeric: false,
+    unit: "",
     frequency: "DAILY" as "DAILY" | "WEEKLY" | "CUSTOM",
     targetDays: [] as string[],
     isPublic: false,
@@ -55,6 +57,15 @@ export default function NewHabitPage() {
     if (errors.targetDays) {
       setErrors((prev) => ({ ...prev, targetDays: undefined }));
     }
+  };
+
+  const applyNumericPreset = (name: "Sleep" | "Study") => {
+    setFormData((prev) => ({
+      ...prev,
+      name,
+      isNumeric: true,
+      unit: "hours",
+    }));
   };
 
   const toggleDay = (dayId: string) => {
@@ -99,6 +110,8 @@ export default function NewHabitPage() {
         body: JSON.stringify({
           name: formData.name.trim(),
           description: formData.description.trim() || null,
+          isNumeric: formData.isNumeric,
+          unit: formData.isNumeric ? formData.unit.trim() : null,
           frequency: formData.frequency,
           targetDays: formData.frequency === "CUSTOM" ? formData.targetDays : [],
           isPublic: formData.isPublic,
@@ -170,6 +183,23 @@ export default function NewHabitPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6" noValidate>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => applyNumericPreset("Sleep")}
+              className="px-3 py-1.5 rounded-lg bg-[#15151E] border border-[#232336] text-[#F4F4F8] text-xs font-semibold hover:border-[#8B5CF6]/60"
+            >
+              Sleep (hours)
+            </button>
+            <button
+              type="button"
+              onClick={() => applyNumericPreset("Study")}
+              className="px-3 py-1.5 rounded-lg bg-[#15151E] border border-[#232336] text-[#F4F4F8] text-xs font-semibold hover:border-[#8B5CF6]/60"
+            >
+              Study (hours)
+            </button>
+          </div>
+
           {/* Name Field */}
           <div>
             <label htmlFor="name" className="block text-xs font-semibold text-textSecondary uppercase tracking-wider mb-2">
@@ -208,6 +238,40 @@ export default function NewHabitPage() {
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               className="w-full px-4 py-3 rounded-xl bg-background border border-surfaceBorder text-textPrimary placeholder:text-textSecondary/50 text-sm focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet transition-colors resize-none"
             />
+          </div>
+
+          <div className="space-y-3">
+            <label className="flex items-center gap-3 text-sm text-textPrimary cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formData.isNumeric}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    isNumeric: e.target.checked,
+                    unit: e.target.checked ? formData.unit : "",
+                  })
+                }
+                className="w-4 h-4 rounded border-surfaceBorder bg-background text-violet focus:ring-violet"
+              />
+              Track a number (e.g. hours)
+            </label>
+            {formData.isNumeric && (
+              <div>
+                <label htmlFor="unit" className="block text-xs font-semibold text-textSecondary uppercase tracking-wider mb-2">
+                  Unit
+                </label>
+                <input
+                  id="unit"
+                  type="text"
+                  placeholder="e.g. hours, pages, glasses"
+                  value={formData.unit}
+                  required
+                  onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                  className="w-full px-4 py-3 rounded-xl bg-background border border-surfaceBorder text-textPrimary placeholder:text-textSecondary/50 text-sm focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet transition-colors"
+                />
+              </div>
+            )}
           </div>
 
           {/* Frequency Selection */}

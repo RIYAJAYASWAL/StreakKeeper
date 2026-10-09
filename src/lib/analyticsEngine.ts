@@ -42,6 +42,7 @@ export interface WeeklyTrendPoint {
 
 export interface HabitAnalyticsResult {
   habitId: string;
+  habitSlug?: string;
   habitName: string;
   frequency: Frequency;
   totalExpectedDays: number;
@@ -579,6 +580,5 @@ export function getBestPerformanceWindow(
     summary,
   };
 }
-
 
 

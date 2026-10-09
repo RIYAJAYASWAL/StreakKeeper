@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { calculateCurrentStreak, getTodayInTimezone } from "@/lib/streakEngine";
+import { createUniqueHabitSlug } from "@/lib/habitSlug";
 import { randomBytes } from "crypto";
 
 // GET /api/habits
@@ -83,7 +84,7 @@ export async function POST(request: Request) {
 
     const userId = session.user.id || "demo-user-id";
     const body = await request.json().catch(() => ({}));
-    const { name, description, frequency, targetDays, isPublic, groupId, goalType, goalTarget } = body;
+    const { name, description, unit, isNumeric, frequency, targetDays, isPublic, groupId, goalType, goalTarget } = body;
 
     // Validation
     if (!name || typeof name !== "string" || !name.trim()) {
@@ -92,6 +93,17 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    if (isNumeric !== undefined && typeof isNumeric !== "boolean") {
+      return NextResponse.json({ error: "isNumeric must be a boolean." }, { status: 400 });
+    }
+    if (isNumeric && (typeof unit !== "string" || !unit.trim())) {
+      return NextResponse.json({ error: "A unit is required for numeric habits." }, { status: 400 });
+    }
+    if (unit !== undefined && unit !== null && typeof unit !== "string") {
+      return NextResponse.json({ error: "Unit must be text." }, { status: 400 });
+    }
+    const numericHabit = isNumeric === true;
 
     const validFrequencies = ["DAILY", "WEEKLY", "CUSTOM"];
     const habitFrequency = validFrequencies.includes(frequency) ? frequency : "DAILY";
@@ -104,6 +116,7 @@ export async function POST(request: Request) {
     }
 
     const publicId = isPublic ? randomBytes(8).toString("hex") : null;
+    const slug = await createUniqueHabitSlug(userId, name.trim());
 
     let habit;
     try {
@@ -124,7 +137,10 @@ export async function POST(request: Request) {
         data: {
           userId,
           name: name.trim(),
+          slug,
           description: description ? description.trim() : null,
+          unit: numericHabit && typeof unit === "string" ? unit.trim() : null,
+          isNumeric: numericHabit,
           frequency: habitFrequency,
           targetDays: Array.isArray(targetDays) ? targetDays : [],
           freezesAvailable: 3,
@@ -144,7 +160,10 @@ export async function POST(request: Request) {
         id: `habit-${Date.now()}`,
         userId,
         name: name.trim(),
+        slug,
         description: description ? description.trim() : null,
+        unit: numericHabit && typeof unit === "string" ? unit.trim() : null,
+        isNumeric: numericHabit,
         frequency: habitFrequency,
         targetDays: Array.isArray(targetDays) ? targetDays : [],
         freezesAvailable: 3,

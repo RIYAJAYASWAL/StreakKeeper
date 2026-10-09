@@ -6,9 +6,12 @@ import { ChevronDown, ChevronRight, Folder } from "lucide-react";
 
 export interface DashboardHabitItem {
   id: string;
+  slug: string;
   name: string;
   description?: string | null;
   frequency: string;
+  isNumeric?: boolean;
+  unit?: string | null;
   freezesAvailable: number;
   currentStreak: number;
   todayStatus: "DONE" | "MISSED" | "FROZEN" | "PENDING" | null;
@@ -112,12 +115,15 @@ export default function DashboardHabitsList({ habits, groups }: DashboardHabitsL
               key={cleanId}
               id={cleanId}
               habitId={cleanId}
+              slug={habit.slug}
               name={habit.name}
               description={habit.description}
               currentStreak={habit.currentStreak}
               todayStatus={habit.todayStatus}
               freezesAvailable={habit.freezesAvailable}
               frequency={habit.frequency}
+              isNumeric={habit.isNumeric}
+              unit={habit.unit}
               groupColor={habit.group?.color}
               groupName={habit.group?.name}
             />
@@ -171,12 +177,15 @@ export default function DashboardHabitsList({ habits, groups }: DashboardHabitsL
                       key={cleanId}
                       id={cleanId}
                       habitId={cleanId}
+                      slug={habit.slug}
                       name={habit.name}
                       description={habit.description}
                       currentStreak={habit.currentStreak}
                       todayStatus={habit.todayStatus}
                       freezesAvailable={habit.freezesAvailable}
                       frequency={habit.frequency}
+                      isNumeric={habit.isNumeric}
+                      unit={habit.unit}
                       groupColor={habit.group?.color || (section.id !== "other" ? section.color : null)}
                       groupName={habit.group?.name || section.name}
                     />

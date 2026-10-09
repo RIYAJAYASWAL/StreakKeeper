@@ -11,6 +11,7 @@ import {
   HabitAnalyticsCard,
 } from "@/components/AnalyticsCharts";
 import HabitProgressRefreshListener from "@/components/HabitProgressRefreshListener";
+import StudyVsSleepInsights, { NumericHabitData } from "@/components/StudyVsSleepInsights";
 import Link from "next/link";
 import { Frequency, getTodayInTimezone, LogStatus } from "@/lib/streakEngine";
 
@@ -37,6 +38,7 @@ export default async function AnalyticsPage() {
   }
 
   let habitsAnalytics: HabitAnalyticsResult[] = [];
+  let numericHabits: NumericHabitData[] = [];
   let aggregateAnalytics = calculateAggregateAnalytics([]);
 
   try {
@@ -65,9 +67,30 @@ export default async function AnalyticsPage() {
         status: log.status as LogStatus,
       })),
     }));
+    numericHabits = rawHabits.flatMap((habit) =>
+      habit.isNumeric &&
+      habit.unit &&
+      /^hours?$/i.test(habit.unit) &&
+      habit.userId === userId
+        ? [{
+            id: habit.id,
+            name: habit.name,
+            unit: habit.unit,
+            logs: habit.habitLogs
+              .filter((log) => log.value !== null)
+              .map((log) => ({
+                date: log.date.toISOString().slice(0, 10),
+                value: log.value,
+              })),
+          }]
+        : []
+    );
 
     const today = new Date(`${getTodayInTimezone(timezone)}T00:00:00.000Z`);
-    habitsAnalytics = formattedHabits.map((h) => calculateHabitAnalytics(h, today));
+    habitsAnalytics = formattedHabits.map((h) => ({
+      ...calculateHabitAnalytics(h, today),
+      habitSlug: rawHabits.find((habit) => habit.id === h.id)?.slug,
+    }));
     aggregateAnalytics = calculateAggregateAnalytics(habitsAnalytics);
   } catch (error) {
     console.error("Failed to fetch analytics from Prisma:", error);
@@ -208,6 +231,7 @@ export default async function AnalyticsPage() {
             </div>
           </>
         )}
+        <StudyVsSleepInsights habits={numericHabits} />
       </main>
     </div>
   );

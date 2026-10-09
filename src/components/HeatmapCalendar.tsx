@@ -1,6 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import {
+  calculateCurrentStreak,
+  calculateLast30DayCompletionRate,
+  calculateLongestStreak,
+  Frequency,
+  getTodayInTimezone,
+  shouldExpectLogOnDate,
+} from "@/lib/streakEngine";
 
 export interface LogEntry {
   date: string; // YYYY-MM-DD
@@ -11,6 +19,10 @@ export interface LogEntry {
 export interface HeatmapCalendarProps {
   logs: LogEntry[];
   startDate: string | Date;
+  today?: string;
+  frequency?: Frequency;
+  targetDays?: string[];
+  timezone?: string;
   combinedHabitCounts?: Record<string, { completed: number; total: number }>;
 }
 
@@ -31,46 +43,56 @@ function formatDateKey(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-export default function HeatmapCalendar({ logs, startDate, combinedHabitCounts }: HeatmapCalendarProps) {
+export default function HeatmapCalendar({
+  logs,
+  startDate,
+  today = getTodayInTimezone(),
+  frequency = "DAILY",
+  targetDays = [],
+  timezone = "UTC",
+  combinedHabitCounts,
+}: HeatmapCalendarProps) {
   const [hoveredDay, setHoveredDay] = useState<{
     text: string;
     x: number;
     y: number;
   } | null>(null);
 
-  const { weeks, monthLabels, currentStreak, longestStreak, completionRate } = useMemo(() => {
-    // Build a map of logs by YYYY-MM-DD
-    const logMap = new Map<string, { status: "DONE" | "MISSED" | "FROZEN"; streakCount: number }>();
-    // Sort logs chronologically to compute running streaks
+  const { weeks, monthLabels } = useMemo(() => {
     const sortedLogs = [...logs]
       .map((log) => ({ ...log, dateKey: toDateKey(log.date) }))
       .sort((a, b) => a.dateKey.localeCompare(b.dateKey));
 
-    let runningStreak = 0;
-    let longestStreak = 0;
-    sortedLogs.forEach((log) => {
-      if (log.status === "DONE" || log.status === "FROZEN") {
-        runningStreak += 1;
-      } else {
-        runningStreak = 0;
+    const statuses = new Map(sortedLogs.map((log) => [log.dateKey, log.status]));
+    const logMap = new Map<string, { status: "DONE" | "MISSED" | "FROZEN"; streakCount: number }>();
+    if (sortedLogs.length > 0) {
+      const cursor = new Date(`${sortedLogs[0].dateKey}T00:00:00.000Z`);
+      const lastDate = new Date(`${sortedLogs[sortedLogs.length - 1].dateKey}T00:00:00.000Z`);
+      let streakCount = 0;
+      while (cursor <= lastDate) {
+        const dateKey = cursor.toISOString().split("T")[0];
+        if (shouldExpectLogOnDate(dateKey, frequency, targetDays)) {
+          const status = statuses.get(dateKey);
+          if (status === "DONE") streakCount += 1;
+          else if (status !== "FROZEN") streakCount = 0;
+          if (status) logMap.set(dateKey, { status, streakCount });
+        }
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
       }
-      longestStreak = Math.max(longestStreak, runningStreak);
-      logMap.set(log.dateKey, { status: log.status, streakCount: runningStreak });
-    });
+    }
 
     const startDateKey = toDateKey(startDate);
-    const start = fromDateKey(startDateKey);
-    const today = fromDateKey(formatDateKey(new Date()));
-    const todayKey = formatDateKey(today);
+    const todayDate = fromDateKey(today);
+    const todayKey = today;
 
     // Set timeline range: at least 16 weeks (~4 months) or up to 52 weeks (~1 year)
-    const rangeStart = new Date(today);
+    const rangeStart = new Date(todayDate);
     rangeStart.setDate(rangeStart.getDate() - 364);
 
     // Adjust rangeStart to the preceding Sunday so columns align cleanly by week
     const dayOfWeek = rangeStart.getDay();
     rangeStart.setDate(rangeStart.getDate() - dayOfWeek);
-    const rangeEnd = new Date(today);
+    const rangeEnd = new Date(todayDate);
     rangeEnd.setDate(rangeEnd.getDate() + (6 - rangeEnd.getDay()));
 
     const weeksArr: Array<
@@ -93,10 +115,10 @@ export default function HeatmapCalendar({ logs, startDate, combinedHabitCounts }
 
     while (curr <= rangeEnd) {
       const dateStr = formatDateKey(curr);
-      const isBeforeStart = dateStr < startDateKey;
+      const logInfo = logMap.get(dateStr);
+      const isBeforeStart = dateStr < startDateKey && !logInfo;
       const isFuture = dateStr > todayKey;
       const isToday = dateStr === todayKey;
-      const logInfo = logMap.get(dateStr);
 
       const month = curr.getMonth();
       if (month !== currentMonth) {
@@ -129,27 +151,15 @@ export default function HeatmapCalendar({ logs, startDate, combinedHabitCounts }
       weeksArr.push(currentWeek);
     }
 
-    const last30Start = new Date(today);
-    last30Start.setDate(last30Start.getDate() - 29);
-    const last30StartKey = formatDateKey(last30Start);
-    const trackedLast30Days = sortedLogs.filter(
-      (log) => log.dateKey >= last30StartKey && log.dateKey <= todayKey
-    );
-    const completedLast30Days = trackedLast30Days.filter(
-      (log) => log.status === "DONE" || log.status === "FROZEN"
-    ).length;
-    const completionRate = trackedLast30Days.length
-      ? Math.round((completedLast30Days / trackedLast30Days.length) * 100)
-      : 0;
-
     return {
       weeks: weeksArr,
       monthLabels: monthLabelsArr,
-      currentStreak: runningStreak,
-      longestStreak,
-      completionRate,
     };
-  }, [logs, startDate]);
+  }, [logs, startDate, today, frequency, targetDays]);
+
+  const currentStreak = calculateCurrentStreak(logs, frequency, targetDays, timezone);
+  const longestStreak = calculateLongestStreak(logs, frequency, targetDays);
+  const completionRate = calculateLast30DayCompletionRate(logs, today);
 
   // Color helper based on status and streak intensity
   const getCellColor = (

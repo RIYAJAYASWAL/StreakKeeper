@@ -10,6 +10,7 @@ export interface QueuedCheckoff {
   habitId: string;
   date: string;
   timestamp: number;
+  value?: number | null;
 }
 
 const STORAGE_KEY = "streakkeeper_offline_queue";
@@ -40,7 +41,11 @@ export function getOfflineQueue(): QueuedCheckoff[] {
 /**
  * Add a habit check-off to the offline queue
  */
-export function enqueueOfflineCheckoff(habitId: string, date?: string): QueuedCheckoff[] {
+export function enqueueOfflineCheckoff(
+  habitId: string,
+  date?: string,
+  value?: number | null
+): QueuedCheckoff[] {
   if (typeof window === "undefined") return [];
   const queue = getOfflineQueue();
   const dateStr = date || new Date().toISOString().split("T")[0];
@@ -53,6 +58,7 @@ export function enqueueOfflineCheckoff(habitId: string, date?: string): QueuedCh
       habitId,
       date: dateStr,
       timestamp: Date.now(),
+      value,
     };
     queue.push(newItem);
     try {
@@ -99,6 +105,7 @@ export async function syncOfflineQueue(): Promise<{ syncedCount: number; errors:
         body: JSON.stringify({
           date: item.date,
           status: "DONE",
+          value: item.value ?? null,
         }),
       });
 

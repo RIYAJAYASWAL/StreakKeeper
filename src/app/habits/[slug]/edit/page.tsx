@@ -14,14 +14,16 @@ const DAYS_OF_WEEK = [
   { id: "SUN", label: "Sun" },
 ];
 
-export default function EditHabitPage({ params }: { params: Promise<{ id: string }> | { id: string } }) {
+export default function EditHabitPage({ params }: { params: Promise<{ slug: string }> | { slug: string } }) {
   const router = useRouter();
-  const unwrappedParams = typeof (params as any)?.then === "function" ? use(params as Promise<{ id: string }>) : (params as { id: string });
-  const habitId = unwrappedParams.id;
+  const unwrappedParams = typeof (params as any)?.then === "function" ? use(params as Promise<{ slug: string }>) : (params as { slug: string });
+  const habitSlug = unwrappedParams.slug;
 
   const [formData, setFormData] = useState({
     name: "",
     description: "",
+    isNumeric: false,
+    unit: "",
     frequency: "DAILY" as "DAILY" | "WEEKLY" | "CUSTOM",
     targetDays: [] as string[],
     isPublic: false,
@@ -46,7 +48,7 @@ export default function EditHabitPage({ params }: { params: Promise<{ id: string
     async function loadData() {
       try {
         const [habitRes, groupsRes] = await Promise.all([
-          fetch(`/api/habits/${habitId}`),
+          fetch(`/api/habits/${habitSlug}`),
           fetch("/api/groups"),
         ]);
 
@@ -61,9 +63,15 @@ export default function EditHabitPage({ params }: { params: Promise<{ id: string
         }
         const data = await habitRes.json();
         if (data.habit) {
+          if (data.habit.slug !== habitSlug) {
+            router.replace(`/habits/${data.habit.slug}/edit`);
+            return;
+          }
           setFormData({
             name: data.habit.name || "",
             description: data.habit.description || "",
+            isNumeric: Boolean(data.habit.isNumeric),
+            unit: data.habit.unit || "",
             frequency: data.habit.frequency || "DAILY",
             targetDays: data.habit.targetDays || [],
             isPublic: Boolean(data.habit.isPublic),
@@ -79,7 +87,7 @@ export default function EditHabitPage({ params }: { params: Promise<{ id: string
       }
     }
     loadData();
-  }, [habitId, router]);
+  }, [habitSlug, router]);
 
   const handleFrequencyChange = (freq: "DAILY" | "WEEKLY" | "CUSTOM") => {
     setFormData((prev) => ({
@@ -128,12 +136,14 @@ export default function EditHabitPage({ params }: { params: Promise<{ id: string
     setErrors({});
 
     try {
-      const response = await fetch(`/api/habits/${habitId}`, {
+      const response = await fetch(`/api/habits/${habitSlug}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: formData.name.trim(),
           description: formData.description.trim() || null,
+          isNumeric: formData.isNumeric,
+          unit: formData.isNumeric ? formData.unit.trim() : null,
           frequency: formData.frequency,
           targetDays: formData.frequency === "CUSTOM" ? formData.targetDays : [],
           isPublic: formData.isPublic,
@@ -150,7 +160,7 @@ export default function EditHabitPage({ params }: { params: Promise<{ id: string
         return;
       }
 
-      router.push(`/habits/${habitId}`);
+      router.push(`/habits/${habitSlug}`);
       router.refresh();
     } catch {
       setErrors({ general: "An unexpected error occurred while saving." });
@@ -161,7 +171,7 @@ export default function EditHabitPage({ params }: { params: Promise<{ id: string
   const handleArchive = async () => {
     setIsArchiving(true);
     try {
-      const response = await fetch(`/api/habits/${habitId}`, {
+      const response = await fetch(`/api/habits/${habitSlug}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -201,7 +211,7 @@ export default function EditHabitPage({ params }: { params: Promise<{ id: string
 
       {/* Header Logo */}
       <div className="relative z-10 mb-8 text-center">
-        <Link href={`/habits/${habitId}`} className="inline-flex items-center gap-2 group">
+        <Link href={`/habits/${habitSlug}`} className="inline-flex items-center gap-2 group">
           <div className="w-9 h-9 rounded-xl bg-ember-gradient p-0.5 shadow-md shadow-[#FF6B6B]/20 group-hover:scale-105 transition-transform">
             <div className="w-full h-full bg-surface rounded-[10px] flex items-center justify-center">
               <svg className="w-4 h-4 text-emberMid" fill="currentColor" viewBox="0 0 24 24">
@@ -273,6 +283,40 @@ export default function EditHabitPage({ params }: { params: Promise<{ id: string
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               className="w-full px-4 py-3 rounded-xl bg-background border border-surfaceBorder text-textPrimary text-sm focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet transition-colors resize-none"
             />
+          </div>
+
+          <div className="space-y-3">
+            <label className="flex items-center gap-3 text-sm text-textPrimary cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formData.isNumeric}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    isNumeric: e.target.checked,
+                    unit: e.target.checked ? formData.unit : "",
+                  })
+                }
+                className="w-4 h-4 rounded border-surfaceBorder bg-background text-violet focus:ring-violet"
+              />
+              Track a number (e.g. hours)
+            </label>
+            {formData.isNumeric && (
+              <div>
+                <label htmlFor="unit" className="block text-xs font-semibold text-textSecondary uppercase tracking-wider mb-2">
+                  Unit
+                </label>
+                <input
+                  id="unit"
+                  type="text"
+                  placeholder="e.g. hours, pages, glasses"
+                  value={formData.unit}
+                  required
+                  onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                  className="w-full px-4 py-3 rounded-xl bg-background border border-surfaceBorder text-textPrimary placeholder:text-textSecondary/50 text-sm focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet transition-colors"
+                />
+              </div>
+            )}
           </div>
 
           {/* Frequency Selection */}
@@ -422,7 +466,7 @@ export default function EditHabitPage({ params }: { params: Promise<{ id: string
           <div className="pt-4 border-t border-surfaceBorder/60 flex items-center gap-3">
             <button
               type="button"
-              onClick={() => router.push(`/habits/${habitId}`)}
+              onClick={() => router.push(`/habits/${habitSlug}`)}
               disabled={isSubmitting}
               className="flex-1 py-3 px-4 rounded-xl bg-background border border-surfaceBorder text-textSecondary hover:text-textPrimary font-semibold text-sm transition-colors"
             >

@@ -1,0 +1,1 @@
+-- Baseline for the existing database schema before Prisma Migrate was introduced.

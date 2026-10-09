@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { ensurePushSubscription } from "@/lib/pushSubscription";
 
 interface SettingsFormsProps {
   initialUser: {
@@ -12,17 +13,6 @@ interface SettingsFormsProps {
     email: string;
     timezone: string;
   };
-}
-
-function urlBase64ToUint8Array(base64String: string) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
 }
 
 const COMMON_TIMEZONES = [
@@ -57,6 +47,7 @@ export default function SettingsForms({ initialUser }: SettingsFormsProps) {
   const [pushSupported, setPushSupported] = useState(false);
   const [pushSubscribed, setPushSubscribed] = useState(false);
   const [pushLoading, setPushLoading] = useState(false);
+  const [testPushLoading, setTestPushLoading] = useState(false);
   const [pushFeedback, setPushFeedback] = useState<{ type: "success" | "error"; msg: string } | null>(null);
 
   useEffect(() => {
@@ -88,49 +79,59 @@ export default function SettingsForms({ initialUser }: SettingsFormsProps) {
         const sub = await reg.pushManager.getSubscription();
         if (sub) {
           await sub.unsubscribe();
-          await fetch(`/api/push/subscribe?endpoint=${encodeURIComponent(sub.endpoint)}`, {
+          const response = await fetch(`/api/push/subscribe?endpoint=${encodeURIComponent(sub.endpoint)}`, {
             method: "DELETE",
           });
+          if (!response.ok) {
+            throw new Error("Failed to remove push subscription from the server.");
+          }
         }
         setPushSubscribed(false);
         setPushFeedback({ type: "success", msg: "Web push notifications disabled." });
       } else {
-        const permission = await Notification.requestPermission();
-        if (permission !== "granted") {
-          throw new Error("Notification permission was denied.");
-        }
-
-        const reg = await navigator.serviceWorker.ready;
-        const vapidKey =
-          process.env.NEXT_PUBLIC_VAPID_KEY ||
-          "BBlZEtwkSddDCVvRE08kUOBMN-Yw01YWoQS2FksntLd_DBq8txd9jqaDXmT53R28viB9diLZcc9B-Y6C9MSIlX4";
-        const convertedVapidKey = urlBase64ToUint8Array(vapidKey);
-
-        const subscription = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: convertedVapidKey,
-        });
-
-        const res = await fetch("/api/push/subscribe", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ subscription }),
-        });
-
-        if (!res.ok) {
-          throw new Error("Failed to save push subscription on server.");
-        }
-
+        await ensurePushSubscription();
         setPushSubscribed(true);
         setPushFeedback({ type: "success", msg: "Web push notifications enabled successfully!" });
       }
-    } catch (err: any) {
+    } catch (err) {
       setPushFeedback({
         type: "error",
-        msg: err.message || "Failed to update notification settings.",
+        msg: err instanceof Error ? err.message : "Failed to update notification settings.",
       });
     } finally {
       setPushLoading(false);
+    }
+  };
+
+  const handleSendTestNotification = async () => {
+    setTestPushLoading(true);
+    setPushFeedback(null);
+
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        throw new Error("No browser push subscription found. Enable notifications first.");
+      }
+
+      const response = await fetch("/api/push/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint: subscription.endpoint }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to send test notification.");
+      }
+
+      setPushFeedback({ type: "success", msg: "Test notification sent." });
+    } catch (err) {
+      setPushFeedback({
+        type: "error",
+        msg: err instanceof Error ? err.message : "Failed to send test notification.",
+      });
+    } finally {
+      setTestPushLoading(false);
     }
   };
 
@@ -470,6 +471,16 @@ export default function SettingsForms({ initialUser }: SettingsFormsProps) {
             ) : (
               <span>Enable Notifications</span>
             )}
+          </button>
+        </div>
+        <div className="pt-4 flex justify-end">
+          <button
+            type="button"
+            onClick={handleSendTestNotification}
+            disabled={!pushSupported || !pushSubscribed || testPushLoading}
+            className="px-5 py-2.5 rounded-xl bg-surfaceBorder hover:bg-surfaceBorder/80 text-textPrimary font-semibold text-sm transition-all disabled:opacity-50"
+          >
+            {testPushLoading ? "Sending..." : "Send test notification"}
           </button>
         </div>
       </section>

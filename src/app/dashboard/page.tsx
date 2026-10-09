@@ -27,8 +27,11 @@ export default async function DashboardPage() {
 
   let habits: Array<{
     id: string;
+    slug: string;
     name: string;
     description: string | null;
+    isNumeric: boolean;
+    unit: string | null;
     frequency: string;
     freezesAvailable: number;
     currentStreak: number;
@@ -94,8 +97,11 @@ export default async function DashboardPage() {
 
       return {
         id: habit.id,
+        slug: habit.slug,
         name: habit.name,
         description: habit.description,
+        isNumeric: habit.isNumeric,
+        unit: habit.unit,
         frequency: habit.frequency,
         freezesAvailable: habit.freezesAvailable,
         currentStreak,

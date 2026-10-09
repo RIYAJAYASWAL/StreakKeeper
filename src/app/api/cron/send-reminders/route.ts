@@ -71,6 +71,13 @@ function getLocalTimeAndDay(timezone: string = "UTC"): {
 
 export async function GET(request: Request) {
   try {
+    console.log("[send-reminders] Cron request received");
+    if (!vapidPublicKey || !vapidPrivateKey) {
+      console.error("[send-reminders] VAPID keys are not configured");
+    } else {
+      console.log("[send-reminders] VAPID keys are configured");
+    }
+
     const { searchParams } = new URL(request.url);
     const authHeader = request.headers.get("authorization");
     const headerSecret = request.headers.get("x-cron-secret");
@@ -84,11 +91,13 @@ export async function GET(request: Request) {
       querySecret === expectedSecret;
 
     if (!isAuthorized) {
+      console.error("[send-reminders] Request authorization failed");
       return NextResponse.json(
         { error: "Unauthorized cron execution" },
         { status: 401 }
       );
     }
+    console.log("[send-reminders] Request authorized");
 
     // Fetch all active, enabled reminders with habit and user details
     const reminders = await prisma.reminder.findMany({
@@ -110,6 +119,7 @@ export async function GET(request: Request) {
         },
       },
     });
+    console.log(`[send-reminders] Found ${reminders.length} active reminders`);
 
     let checkedCount = 0;
     let sentCount = 0;
@@ -126,6 +136,9 @@ export async function GET(request: Request) {
 
       // Check if reminder applies to today's day of week
       if (!reminder.daysOfWeek.includes(dayCode)) {
+        console.log(
+          `[send-reminders] Skipping reminder ${reminder.id}: not scheduled for ${dayCode}`
+        );
         continue;
       }
 
@@ -140,6 +153,9 @@ export async function GET(request: Request) {
       const isTimeMatch = timeStr === reminder.time || minuteDiff < 15;
 
       if (!isTimeMatch) {
+        console.log(
+          `[send-reminders] Skipping reminder ${reminder.id}: local time ${timeStr} does not match ${reminder.time}`
+        );
         continue;
       }
 
@@ -148,12 +164,18 @@ export async function GET(request: Request) {
         const { todayDateStr: lastSentDateStr } = getLocalTimeAndDay(timezone);
         const lastSentIso = reminder.lastSentAt.toISOString().split("T")[0];
         if (lastSentIso === todayDateStr) {
+          console.log(
+            `[send-reminders] Skipping reminder ${reminder.id}: already sent today`
+          );
           continue; // Already sent today
         }
       }
 
       // User must have push subscriptions
       if (!user.pushSubscriptions || user.pushSubscriptions.length === 0) {
+        console.log(
+          `[send-reminders] Skipping reminder ${reminder.id}: no saved subscriptions`
+        );
         details.push({ reminderId: reminder.id, habitName: habit.name, status: "No subscriptions" });
         continue;
       }
@@ -162,8 +184,8 @@ export async function GET(request: Request) {
       const notificationPayload = JSON.stringify({
         title: "Habit Reminder ⏰",
         body: `Time for: ${habit.name} 🔥`,
-        icon: "/icon-192.png",
-        url: `/habits/${habit.id}`,
+        icon: "/icons/icon-192.png",
+        url: `/habits/${habit.slug}`,
       });
 
       let sentToUser = false;
@@ -177,6 +199,7 @@ export async function GET(request: Request) {
           };
 
           await webpush.sendNotification(pushSubscriptionObject, notificationPayload);
+          console.log(`[send-reminders] Push sent for reminder ${reminder.id}`);
           sentToUser = true;
           sentCount++;
         } catch (err: any) {
@@ -207,6 +230,9 @@ export async function GET(request: Request) {
       }
     }
 
+    console.log(
+      `[send-reminders] Finished: checked=${checkedCount}, sent=${sentCount}, failed=${failedCount}`
+    );
     return NextResponse.json({
       success: true,
       summary: {

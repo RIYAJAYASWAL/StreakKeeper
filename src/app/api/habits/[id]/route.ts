@@ -4,7 +4,7 @@ import prisma from "@/lib/prisma";
 import { calculateCurrentStreak, calculateLongestStreak, getTodayInTimezone } from "@/lib/streakEngine";
 import { randomBytes } from "crypto";
 
-// GET /api/habits/[id]
+// GET /api/habits/[id-or-slug]
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -16,10 +16,13 @@ export async function GET(
     }
 
     const userId = session.user.id || "demo-user-id";
-    const { id: habitId } = await params;
+    const { id: habitIdOrSlug } = await params;
 
-    const habit = await prisma.habit.findUnique({
-      where: { id: habitId },
+    const habit = await prisma.habit.findFirst({
+      where: {
+        userId: { in: [userId, "demo-user-id"] },
+        OR: [{ id: habitIdOrSlug }, { slug: habitIdOrSlug }],
+      },
       include: {
         group: true,
         habitLogs: {
@@ -33,10 +36,6 @@ export async function GET(
     }
 
     // Ownership check
-    if (habit.userId !== userId && habit.userId !== "demo-user-id") {
-      return NextResponse.json({ error: "Forbidden: You do not own this habit." }, { status: 403 });
-    }
-
     // Fetch user timezone for current streak calculation
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -75,7 +74,7 @@ export async function GET(
   }
 }
 
-// PATCH /api/habits/[id]
+// PATCH /api/habits/[id-or-slug]
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -87,10 +86,13 @@ export async function PATCH(
     }
 
     const userId = session.user.id || "demo-user-id";
-    const { id: habitId } = await params;
+    const { id: habitIdOrSlug } = await params;
 
-    const habit = await prisma.habit.findUnique({
-      where: { id: habitId },
+    const habit = await prisma.habit.findFirst({
+      where: {
+        userId: { in: [userId, "demo-user-id"] },
+        OR: [{ id: habitIdOrSlug }, { slug: habitIdOrSlug }],
+      },
     });
 
     if (!habit) {
@@ -98,12 +100,8 @@ export async function PATCH(
     }
 
     // Ownership check
-    if (habit.userId !== userId && habit.userId !== "demo-user-id") {
-      return NextResponse.json({ error: "Forbidden: You do not own this habit." }, { status: 403 });
-    }
-
     const body = await request.json().catch(() => ({}));
-    const { name, description, frequency, targetDays, isPublic, archivedAt, goalType, goalTarget, groupId } = body;
+    const { name, description, unit, isNumeric, frequency, targetDays, isPublic, archivedAt, goalType, goalTarget, groupId } = body;
 
     const updateData: Record<string, unknown> = {};
 
@@ -116,6 +114,32 @@ export async function PATCH(
 
     if (description !== undefined) {
       updateData.description = description ? String(description).trim() : null;
+    }
+
+    if (isNumeric !== undefined && typeof isNumeric !== "boolean") {
+      return NextResponse.json({ error: "isNumeric must be a boolean." }, { status: 400 });
+    }
+    if (unit !== undefined && unit !== null && typeof unit !== "string") {
+      return NextResponse.json({ error: "Unit must be text." }, { status: 400 });
+    }
+    const numericHabit =
+      typeof isNumeric === "boolean" ? isNumeric : habit.isNumeric;
+    if (numericHabit && unit !== undefined && (typeof unit !== "string" || !unit.trim())) {
+      return NextResponse.json({ error: "A unit is required for numeric habits." }, { status: 400 });
+    }
+    if (isNumeric !== undefined) {
+      updateData.isNumeric = numericHabit;
+      if (!numericHabit) updateData.unit = null;
+    }
+    if (unit !== undefined) {
+      updateData.unit =
+        numericHabit && typeof unit === "string" && unit.trim()
+          ? unit.trim()
+          : numericHabit
+            ? habit.unit
+            : null;
+    } else if (numericHabit && !habit.isNumeric) {
+      return NextResponse.json({ error: "A unit is required for numeric habits." }, { status: 400 });
     }
 
     if (frequency !== undefined) {
@@ -156,7 +180,7 @@ export async function PATCH(
     }
 
     const updatedHabit = await prisma.habit.update({
-      where: { id: habitId },
+      where: { id: habit.id },
       data: updateData,
     });
 
@@ -167,7 +191,7 @@ export async function PATCH(
   }
 }
 
-// DELETE /api/habits/[id]
+// DELETE /api/habits/[id-or-slug]
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -179,10 +203,13 @@ export async function DELETE(
     }
 
     const userId = session.user.id || "demo-user-id";
-    const { id: habitId } = await params;
+    const { id: habitIdOrSlug } = await params;
 
-    const habit = await prisma.habit.findUnique({
-      where: { id: habitId },
+    const habit = await prisma.habit.findFirst({
+      where: {
+        userId: { in: [userId, "demo-user-id"] },
+        OR: [{ id: habitIdOrSlug }, { slug: habitIdOrSlug }],
+      },
     });
 
     if (!habit) {
@@ -190,13 +217,9 @@ export async function DELETE(
     }
 
     // Ownership check
-    if (habit.userId !== userId && habit.userId !== "demo-user-id") {
-      return NextResponse.json({ error: "Forbidden: You do not own this habit." }, { status: 403 });
-    }
-
     // Delete habit (cascades logs via Prisma schema onDelete: Cascade)
     await prisma.habit.delete({
-      where: { id: habitId },
+      where: { id: habit.id },
     });
 
     return NextResponse.json({ success: true });

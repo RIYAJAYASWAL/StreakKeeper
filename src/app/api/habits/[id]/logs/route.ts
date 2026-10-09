@@ -63,11 +63,13 @@ export async function POST(
     }
 
     const { id: habitId } = await params;
+    const body = await request.json().catch(() => ({}));
+    const value = body.value ?? null;
 
     // Verify habit ownership
     const habit = await prisma.habit.findUnique({
       where: { id: habitId },
-      select: { id: true, userId: true },
+      select: { id: true, userId: true, unit: true, isNumeric: true },
     });
 
     if (!habit) {
@@ -79,6 +81,19 @@ export async function POST(
         { error: "Forbidden: You do not own this habit." },
         { status: 403 }
       );
+    }
+
+    if (
+      value !== null &&
+      (typeof value !== "number" || !Number.isFinite(value))
+    ) {
+      return NextResponse.json({ error: "Logged value must be a finite number." }, { status: 400 });
+    }
+    if (habit.isNumeric && value === null) {
+      return NextResponse.json({ error: `A numeric value in ${habit.unit || "the selected unit"} is required.` }, { status: 400 });
+    }
+    if (habit.isNumeric && /^hours?$/i.test(habit.unit || "") && value !== null && (value < 0 || value > 24)) {
+      return NextResponse.json({ error: "Hours must be between 0 and 24." }, { status: 400 });
     }
 
     // Get user timezone
@@ -101,12 +116,14 @@ export async function POST(
       },
       update: {
         status: "DONE",
+        value: habit.isNumeric ? value : null,
         loggedAt: new Date(),
       },
       create: {
         habitId,
         date: todayDate,
         status: "DONE",
+        value: habit.isNumeric ? value : null,
         loggedAt: new Date(),
       },
     });

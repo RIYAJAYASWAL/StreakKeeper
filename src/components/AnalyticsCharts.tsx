@@ -298,7 +298,7 @@ export function HabitAnalyticsCard({
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <Link
-              href={`/habits/${analytics.habitId}`}
+              href={`/habits/${analytics.habitSlug || analytics.habitId}`}
               className="font-bold text-[#F4F4F8] text-lg hover:text-[#FF9F1C] transition-colors line-clamp-1"
             >
               {analytics.habitName}

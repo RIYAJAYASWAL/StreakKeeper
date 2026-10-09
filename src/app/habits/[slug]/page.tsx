@@ -8,6 +8,12 @@ import HabitProgressRefreshListener from "@/components/HabitProgressRefreshListe
 import ReminderSettings from "@/components/ReminderSettings";
 import CoachCard from "@/components/CoachCard";
 import { suggestReminderTime, generateRecommendation, getBestPerformanceWindow } from "@/lib/analyticsEngine";
+import {
+  calculateCurrentStreak,
+  calculateLast30DayCompletionRate,
+  calculateLongestStreak,
+  getTodayInTimezone,
+} from "@/lib/streakEngine";
 import { Clock } from "lucide-react";
 
 export const revalidate = 0;
@@ -15,17 +21,28 @@ export const revalidate = 0;
 export default async function HabitDetailPage({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: Promise<{ slug: string }>;
 }) {
   const session = await getAuthSession();
   const user = session?.user || { name: "Alex Morgan", email: "alex@streakkeeper.com", id: "demo-user-id" };
   const userId = user.id || "demo-user-id";
-  const { id: habitId } = await params;
+  const { slug } = await params;
+  let timezone = "UTC";
+  try {
+    const userSettings = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { timezone: true },
+    });
+    timezone = userSettings?.timezone || timezone;
+  } catch {
+    // Use UTC if the user's timezone cannot be loaded.
+  }
+  const today = getTodayInTimezone(timezone);
 
   const habit = await prisma.habit.findFirst({
     where: {
-      id: habitId,
       userId: { in: [userId, "demo-user-id"] },
+      OR: [{ slug }, { id: slug }],
       archivedAt: null,
     },
     include: {
@@ -39,6 +56,8 @@ export default async function HabitDetailPage({
     // If habit doesn't belong to current user or doesn't exist
     notFound();
   }
+  if (habit.slug !== slug) redirect(`/habits/${habit.slug}`);
+  const habitId = habit.id;
 
   const [reminders, coachSuggestion] = await Promise.all([
     prisma.reminder.findMany({
@@ -54,62 +73,18 @@ export default async function HabitDetailPage({
   const totalCompletions = habit.habitLogs.filter((l) => l.status === "DONE").length;
   const totalFreezesUsed = habit.habitLogs.filter((l) => l.status === "FROZEN").length;
 
-  // Calculate current and longest streaks with date continuity checks
-  let currentStreak = 0;
-  let longestStreak = 0;
-  let tempStreak = 0;
-
-  // Current streak (from most recent logs)
-  let prevDate: Date | null = null;
-  for (const log of habit.habitLogs) {
-    if (log.status !== "DONE" && log.status !== "FROZEN") {
-      break;
-    }
-    const logDate = new Date(log.date);
-    logDate.setHours(0, 0, 0, 0);
-
-    if (prevDate !== null) {
-      const diffDays = Math.round((prevDate.getTime() - logDate.getTime()) / (1000 * 60 * 60 * 24));
-      if (diffDays !== 1) {
-        break;
-      }
-    }
-    currentStreak += 1;
-    prevDate = logDate;
-  }
-
-  // Longest streak across all logs
-  const logsChronological = [...habit.habitLogs].reverse();
-  let lastDate: Date | null = null;
-  for (const log of logsChronological) {
-    if (log.status === "DONE" || log.status === "FROZEN") {
-      const logDate = new Date(log.date);
-      logDate.setHours(0, 0, 0, 0);
-
-      if (lastDate !== null) {
-        const diffDays = Math.round((logDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
-        if (diffDays === 1) {
-          tempStreak += 1;
-        } else {
-          tempStreak = 1;
-        }
-      } else {
-        tempStreak = 1;
-      }
-      lastDate = logDate;
-      if (tempStreak > longestStreak) longestStreak = tempStreak;
-    } else {
-      tempStreak = 0;
-      lastDate = null;
-    }
-  }
-
-  // Completion rate calculation
-  const createdDate = new Date(habit.createdAt);
-  const today = new Date();
-  const diffTime = Math.abs(today.getTime() - createdDate.getTime());
-  const totalTrackedDays = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
-  const completionRate = Math.min(100, Math.round((totalCompletions / totalTrackedDays) * 100));
+  const currentStreak = calculateCurrentStreak(
+    habit.habitLogs,
+    habit.frequency,
+    habit.targetDays,
+    timezone
+  );
+  const longestStreak = calculateLongestStreak(
+    habit.habitLogs,
+    habit.frequency,
+    habit.targetDays
+  );
+  const completionRate = calculateLast30DayCompletionRate(habit.habitLogs, today);
 
   const formattedLogs = habit.habitLogs.map((log) => ({
     date: new Date(log.date).toISOString().split("T")[0],
@@ -257,6 +232,7 @@ export default async function HabitDetailPage({
           {/* Action Buttons */}
           <HabitDetailActions
             habitId={habit.id}
+            habitSlug={habit.slug}
             isPublic={habit.isPublic}
             publicId={habit.publicId}
           />
@@ -264,7 +240,14 @@ export default async function HabitDetailPage({
 
         {/* Heatmap Section */}
         <div>
-          <HeatmapCalendar logs={formattedLogs} startDate={habit.createdAt} />
+          <HeatmapCalendar
+            logs={formattedLogs}
+            startDate={habit.createdAt}
+            today={today}
+            frequency={habit.frequency}
+            targetDays={habit.targetDays}
+            timezone={timezone}
+          />
         </div>
 
         {/* Summary Stats Row */}
@@ -312,4 +295,3 @@ export default async function HabitDetailPage({
     </div>
   );
 }
-
